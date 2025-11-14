@@ -110,10 +110,10 @@ export default function Home() {
             {/* Main Headline - Two Lines, Bold, High Contrast */}
             <h1 className="text-6xl md:text-7xl lg:text-8xl font-black leading-[1.1] tracking-tight mb-6">
               <span className="block text-white drop-shadow-2xl">
-                Get the alert /
+                Machine Learning Meets
               </span>
               <span className="block text-white drop-shadow-2xl">
-                Before the market moves.
+                Market Momentum
               </span>
             </h1>
 
@@ -173,6 +173,72 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Stats Section - Social Proof */}
+      <section className="py-24 px-6 lg:px-8 bg-background">
+        <div className="max-w-[1400px] mx-auto">
+          <div className="grid md:grid-cols-3 gap-12">
+            {[
+              { number: '10K+', label: 'Active Traders' },
+              { number: '95%', label: 'Prediction Accuracy' },
+              { number: '<50ms', label: 'Alert Latency' },
+            ].map((stat, i) => (
+              <div key={i} className="text-center">
+                <div className="text-5xl lg:text-6xl font-black text-primary mb-3">{stat.number}</div>
+                <div className="text-lg text-secondary font-medium">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works - Process Section */}
+      <section className="py-32 px-6 lg:px-8 bg-panel/30">
+        <div className="max-w-[1400px] mx-auto">
+          <div className="text-center max-w-3xl mx-auto mb-20">
+            <h2 className="text-5xl lg:text-6xl font-black mb-6 text-primary tracking-tight">
+              How It Works
+            </h2>
+            <p className="text-xl text-secondary">
+              Get started in minutes and start receiving predictive alerts
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-12">
+            {[
+              {
+                step: '01',
+                title: 'Connect Your Assets',
+                desc: 'Link your exchange accounts or track specific tickers. We support all major exchanges and thousands of assets.'
+              },
+              {
+                step: '02',
+                title: 'Set Your Strategy',
+                desc: 'Choose your risk tolerance, time horizon, and alert preferences. Our models adapt to your trading style.'
+              },
+              {
+                step: '03',
+                title: 'Receive Smart Alerts',
+                desc: 'Get real-time notifications before significant price movements. Each alert includes confidence scores and reasoning.'
+              },
+            ].map((item, i) => (
+              <div key={i} className="relative">
+                <div className="mb-6">
+                  <div className="text-7xl font-black text-accent/20">{item.step}</div>
+                </div>
+                <h3 className="text-2xl font-bold mb-4 text-primary">{item.title}</h3>
+                <p className="text-base text-secondary leading-relaxed">{item.desc}</p>
+
+                {i < 2 && (
+                  <div className="hidden md:block absolute top-12 -right-6 w-12">
+                    <ArrowRight className="h-6 w-6 text-accent/30" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Features - Modern grid with hover effects */}
       <section id="features" className="py-32 px-6 lg:px-8 relative">
         <div className="max-w-[1600px] mx-auto">
@@ -181,21 +247,20 @@ export default function Home() {
               Professional Trading Tools
             </h2>
             <p className="text-xl text-secondary font-light">
-              Everything you need to trade like an institution
+              Everything you need to trade with confidence
             </p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
-              { icon: Bot, title: 'AI Analysis', desc: 'Advanced machine learning algorithms analyze market patterns in real-time', gradient: 'from-accent/20 to-accent/5' },
-              { icon: LineChart, title: 'Live Charts', desc: 'Professional-grade charting with 100+ technical indicators', gradient: 'from-accent/20 to-accent/5' },
-              { icon: Zap, title: 'Fast Execution', desc: 'Sub-50ms order execution with smart routing', gradient: 'from-accent/20 to-accent/5' },
-              { icon: Target, title: 'Backtesting', desc: 'Test strategies against years of historical data', gradient: 'from-accent/20 to-accent/5' },
-              { icon: Shield, title: 'Risk Management', desc: 'Automated stop-loss and position sizing tools', gradient: 'from-accent/20 to-accent/5' },
-              { icon: Cpu, title: 'API Access', desc: 'Full REST and WebSocket APIs for algo trading', gradient: 'from-accent/20 to-accent/5' },
+              { icon: LineChart, title: 'Real-Time Analytics', desc: 'Advanced charting with institutional-grade data feeds and analytics', gradient: 'from-accent/20 to-accent/5' },
+              { icon: Target, title: 'Predictive Models', desc: 'Proprietary algorithms trained on billions of market data points', gradient: 'from-accent/20 to-accent/5' },
+              { icon: Zap, title: 'Instant Alerts', desc: 'Sub-50ms notifications delivered to all your devices simultaneously', gradient: 'from-accent/20 to-accent/5' },
+              { icon: Shield, title: 'Risk Controls', desc: 'Automated position sizing and portfolio risk management tools', gradient: 'from-accent/20 to-accent/5' },
+              { icon: Activity, title: 'Backtesting', desc: 'Test strategies against years of historical data with realistic fills', gradient: 'from-accent/20 to-accent/5' },
+              { icon: Cpu, title: 'Full API Access', desc: 'REST and WebSocket APIs for custom integrations and automation', gradient: 'from-accent/20 to-accent/5' },
             ].map((feature, i) => (
               <div key={i} className="group relative bg-panel border border-border hover:border-accent/50 rounded-2xl p-8 transition-all duration-300 hover:shadow-2xl hover:shadow-accent/10 hover:-translate-y-1">
-                {/* Gradient overlay on hover */}
                 <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
 
                 <div className="relative z-10">
@@ -218,8 +283,8 @@ export default function Home() {
             <h2 className="text-5xl lg:text-6xl font-black mb-6 text-primary tracking-tight">
               Simple, Transparent Pricing
             </h2>
-            <p className="text-xl text-secondary font-light">
-              Start free, upgrade when you're ready
+            <p className="text-xl text-secondary">
+              Start free, scale as you grow
             </p>
           </div>
 
@@ -301,6 +366,54 @@ export default function Home() {
         </div>
       </section>
 
+      {/* FAQ Section */}
+      <section className="py-32 px-6 lg:px-8 bg-background">
+        <div className="max-w-[1000px] mx-auto">
+          <div className="text-center mb-20">
+            <h2 className="text-5xl lg:text-6xl font-black mb-6 text-primary tracking-tight">
+              Frequently Asked Questions
+            </h2>
+            <p className="text-xl text-secondary">
+              Everything you need to know about Helwa AI
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {[
+              {
+                q: 'How accurate are the predictions?',
+                a: 'Our models maintain a 95% accuracy rate for short-term price movements. We continuously refine our algorithms based on real market data and performance metrics.'
+              },
+              {
+                q: 'Which exchanges and assets are supported?',
+                a: 'We support all major exchanges including Binance, Coinbase, Kraken, and more. Our platform tracks thousands of cryptocurrencies, stocks, and forex pairs.'
+              },
+              {
+                q: 'How quickly do I receive alerts?',
+                a: 'Alerts are delivered in under 50 milliseconds from detection. We use optimized infrastructure to ensure you get notified before significant price movements occur.'
+              },
+              {
+                q: 'Can I backtest my own strategies?',
+                a: 'Yes! Pro and Enterprise plans include full backtesting capabilities. Test your strategies against years of historical data with realistic transaction costs and slippage.'
+              },
+              {
+                q: 'Is my data secure?',
+                a: 'Absolutely. We use bank-level encryption for all data. Your API keys are encrypted at rest and we never have withdrawal permissions on your accounts.'
+              },
+              {
+                q: 'Do I need trading experience?',
+                a: 'No. Our platform is designed for both beginners and professionals. We provide educational resources and clear explanations with every alert.'
+              },
+            ].map((faq, i) => (
+              <div key={i} className="bg-panel border border-border rounded-2xl p-8 hover:border-accent/30 transition-all">
+                <h3 className="text-xl font-bold text-primary mb-3">{faq.q}</h3>
+                <p className="text-base text-secondary leading-relaxed">{faq.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="py-32 px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-accent/5 to-transparent"></div>
@@ -310,7 +423,7 @@ export default function Home() {
               Ready to start trading?
             </h2>
             <p className="text-2xl text-secondary mb-12 font-light">
-              Join thousands of traders using Helwa.ai
+              Join thousands of traders using Helwa AI
             </p>
             <Link
               href="/signup"
