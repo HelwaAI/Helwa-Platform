@@ -3,10 +3,11 @@
 import {
   BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
-  MessageSquare, Send, X, Search
+  MessageSquare, Send, X, Search, Coins
 } from "lucide-react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createChart, CandlestickSeries } from "lightweight-charts";
 
 interface UserInfo {
   name: string;
@@ -14,14 +15,40 @@ interface UserInfo {
   role: "free" | "paid" | "admin";
 }
 
-export default function DashboardPage() {
+interface CryptoAggregate {
+  symbol: string;
+  company_name: string;
+  latest_price: number;
+  change: number;
+  change_percent: number;
+  volume_24h: number;
+  high_24h: number;
+  low_24h: number;
+  vwap: number;
+  bars: Array<{
+    timestamp: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>;
+  last_updated: string;
+}
+
+export default function CryptoDashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "free" });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cryptoData, setCryptoData] = useState<CryptoAggregate | null>(null);
+  const [zonesData, setZonesData] = useState<any>(null);
+  const [fetching, setFetching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
-  // Uncomment lines 22-39 below to restore Azure Easy Auth
+  // Uncomment lines 47-66 below to restore Azure Easy Auth
   /*
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -43,6 +70,194 @@ export default function DashboardPage() {
   }, []);
   */
 
+  // Fetch crypto data based on symbol
+  const fetchCryptoData = async (symbol: string) => {
+    if (!symbol.trim()) {
+      setCryptoData(null);
+      setZonesData(null);
+      setError(null);
+      return;
+    }
+
+    try {
+      setFetching(true);
+      setError(null);
+
+      // Fetch aggregates data
+      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=50000`);
+      const aggregatesData = await aggregatesResponse.json();
+
+      // Fetch zones data
+      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100`);
+      const zonesDataResponse = await zonesResponse.json();
+
+
+      if (aggregatesData.success && aggregatesData.data.length > 0) {
+        setCryptoData(aggregatesData.data[0]);
+
+      // Set zones data if available
+        if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
+          console.log("Crypto Data: ", aggregatesData.data[0])
+          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          setZonesData(zonesDataResponse.data[0]);
+        } else {
+          setZonesData(null);
+        }
+      } else {
+        setError(`No data found for ${symbol}`);
+        setCryptoData(null);
+        setZonesData(null);
+      }
+    } catch (err: any) {
+      setError(`Error fetching data: ${err.message}`);
+      setCryptoData(null);
+      setZonesData(null);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // Handle search when Enter key is pressed
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      if (searchQuery.trim()) {
+        fetchCryptoData(searchQuery);
+      } else {
+        setCryptoData(null);
+        setError(null);
+      }
+    }
+  };
+
+  // Handle search input change (just update state)
+  const handleInputChange = (value: string) => {
+    setSearchQuery(value);
+  };
+
+  // Initialize candlestick chart when cryptoData changes
+  useEffect(() => {
+    console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
+    if (!cryptoData || !chartContainerRef.current) return;
+
+    try {
+      // Create chart
+      const chart = createChart(chartContainerRef.current, {
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+      });
+
+      // Add candlestick series
+      const candlestickSeries = chart.addSeries(CandlestickSeries);
+
+      // Convert bars data to candlestick format
+      const candleData = cryptoData.bars.map((bar) => {
+        // Use full ISO timestamp to ensure unique times
+        const time = Math.floor(new Date(bar.timestamp).getTime() / 1000); // Unix timestamp in seconds
+        return {
+          time,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+        };
+      });
+
+      // Set data on the series
+      candlestickSeries.setData(candleData as any);
+
+      // Function to update zone positions when chart changes
+      const updateZonePositions = () => {
+        // Clear existing zone overlays
+        const existingZones = chartContainerRef.current?.querySelectorAll('.zone-overlay');
+        existingZones?.forEach(el => el.remove());
+
+        // Re-render zones at new positions
+        if (zonesData && zonesData.zones && candleData.length > 0) {
+          const timeScale = chart.timeScale();
+          const chartWidth = chartContainerRef.current?.clientWidth || 0;
+
+          zonesData.zones.forEach((zone: any, index: number) => {
+            try {
+              // Convert created_at to Unix timestamp in seconds
+              const zoneStartTime = Math.floor(new Date(zone.created_at).getTime() / 1000);
+              const topPrice = parseFloat(zone.top_price);
+              const bottomPrice = parseFloat(zone.bottom_price);
+
+              // Convert time to pixel coordinate
+              const startX = timeScale.timeToCoordinate(zoneStartTime as any);
+
+              // Convert prices to pixel coordinates (Y axis) using candlestick series
+              const topY = candlestickSeries.priceToCoordinate(topPrice);
+              const bottomY = candlestickSeries.priceToCoordinate(bottomPrice);
+
+              // Create zone rectangle element
+              if (startX !== null && topY !== null && bottomY !== null && startX < chartWidth) {
+                const zoneHeight = Math.abs(bottomY - topY);
+                const zoneTop = Math.min(topY, bottomY);
+
+                const zoneElement = document.createElement('div');
+                zoneElement.className = `zone-overlay zone-${zone.zone_type}`;
+
+                // Determine color based on zone_type
+                const isSupply = zone.zone_type === 'supply';
+                const bgColor = isSupply ? 'rgba(236, 72, 153, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+                const borderColor = isSupply ? 'rgba(236, 72, 153, 0.4)' : 'rgba(16, 185, 129, 0.4)';
+
+                zoneElement.style.position = 'absolute';
+                zoneElement.style.left = `${startX}px`;
+                zoneElement.style.top = `${zoneTop}px`;
+                zoneElement.style.width = `${chartWidth - startX}px`;
+                zoneElement.style.height = `${zoneHeight}px`;
+                zoneElement.style.backgroundColor = bgColor;
+                zoneElement.style.border = `1px solid ${borderColor}`;
+                zoneElement.style.borderLeft = `2px solid ${borderColor}`;
+                zoneElement.style.pointerEvents = 'none';
+                zoneElement.style.zIndex = '1';
+
+                // Add tooltip on hover
+                zoneElement.title = `${zone.zone_type.toUpperCase()} Zone - $${bottomPrice.toFixed(2)} to $${topPrice.toFixed(2)}`;
+
+                chartContainerRef.current?.appendChild(zoneElement);
+              }
+            } catch (zoneErr) {
+              console.error(`Error rendering zone ${index}:`, zoneErr);
+            }
+          });
+        }
+      };
+
+      // Initial zone rendering
+      updateZonePositions();
+
+      // Fit content to view
+      chart.timeScale().fitContent();
+
+      // Handle window resize
+      const handleResize = () => {
+        if (chartContainerRef.current) {
+          chart.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight,
+          });
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      // Subscribe to chart changes to update zones
+      chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        updateZonePositions();
+      });
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        chart.remove();
+      };
+    } catch (err) {
+      console.error('Error initializing chart:', err);
+    }
+  }, [cryptoData]);
+
   const isLocked = user.role === "free";
 
   return (
@@ -51,7 +266,7 @@ export default function DashboardPage() {
       <aside className="w-16 bg-panel border-r border-border/30 flex flex-col items-center py-4 gap-2">
         {/* Logo */}
         <Link href="/" className="w-10 h-10 bg-gradient-to-br from-accent to-accent-dark rounded flex items-center justify-center mb-4">
-          <Activity className="h-5 w-5 text-white" />
+          <Coins className="h-5 w-5 text-white" />
         </Link>
 
         {/* Nav icons */}
@@ -94,10 +309,21 @@ export default function DashboardPage() {
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-success animate-pulse"></div>
-              <span className="text-sm font-medium text-primary">BTC/USD</span>
-              <span className="text-lg font-bold text-success">$43,521.00</span>
-              <span className="text-sm text-success">+2.4%</span>
+              <span className="text-sm font-medium text-primary">
+                {cryptoData?.symbol || 'Select Crypto'}
+              </span>
+              <span className="text-lg font-bold text-success">
+                ${cryptoData?.latest_price.toFixed(2) || '0.00'}
+              </span>
+              <span className={`text-sm ${cryptoData && cryptoData.change_percent >= 0 ? 'text-success' : 'text-red-500'}`}>
+                {cryptoData ? `${cryptoData.change_percent >= 0 ? '+' : ''}${cryptoData.change_percent.toFixed(2)}%` : '0.00%'}
+              </span>
             </div>
+            {error && (
+              <div className="text-xs text-red-500 ml-4">
+                {error}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -138,10 +364,12 @@ export default function DashboardPage() {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Search..."
+                      placeholder="Search crypto (e.g., BTC, ETH)... Press Enter"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent"
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      onKeyDown={handleSearchKeyPress}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
                   <select className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary">
@@ -172,30 +400,11 @@ export default function DashboardPage() {
 
               {/* Chart Content */}
               <div className="h-full p-6 relative">
-                {/* Simulated Chart */}
-                <svg className="w-full h-full opacity-40" viewBox="0 0 800 400">
-                  <defs>
-                    <linearGradient id="chartGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="rgb(245, 158, 11)" stopOpacity="0.4"/>
-                      <stop offset="100%" stopColor="rgb(245, 158, 11)" stopOpacity="0"/>
-                    </linearGradient>
-                  </defs>
-                  {/* Grid lines */}
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <line key={i} x1="0" y1={i * 80} x2="800" y2={i * 80} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-                  ))}
-                  {/* Price line */}
-                  <path
-                    d="M 0 300 Q 100 250, 200 280 T 400 200 T 600 160 T 800 120"
-                    stroke="rgb(245, 158, 11)"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  <path
-                    d="M 0 300 Q 100 250, 200 280 T 400 200 T 600 160 T 800 120 L 800 400 L 0 400 Z"
-                    fill="url(#chartGrad)"
-                  />
-                </svg>
+                {/* Lightweight Charts Container */}
+                <div
+                  ref={chartContainerRef}
+                  className="w-full h-full"
+                />
 
                 {/* Lock Overlay for Free Users */}
                 {isLocked && (
@@ -208,7 +417,7 @@ export default function DashboardPage() {
                         Unlock Professional Charts
                       </h3>
                       <p className="text-secondary mb-6">
-                        Upgrade to Pro to access real-time charts, advanced indicators, and AI-powered insights.
+                        Upgrade to Pro to access real-time crypto charts, advanced indicators, and AI-powered insights.
                       </p>
                       <Link
                         href="/#pricing"
@@ -229,20 +438,24 @@ export default function DashboardPage() {
 
             {/* Bottom Stats Grid */}
             <div className="grid grid-cols-4 gap-4">
-              {[
-                { label: 'Volume 24h', value: '$1.2M', change: '+12.4%', up: true },
-                { label: 'High 24h', value: '$43,800', change: '+2.1%', up: true },
-                { label: 'Low 24h', value: '$42,100', change: '-1.2%', up: false },
-                { label: 'Market Cap', value: '$821B', change: '+5.3%', up: true },
+              {cryptoData ? [
+                { label: 'Volume 24h', value: `${(cryptoData.volume_24h / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
+                { label: 'High 24h', value: `$${cryptoData.high_24h.toFixed(2)}`, change: `+${((cryptoData.high_24h - cryptoData.latest_price) / cryptoData.latest_price * 100).toFixed(2)}%`, up: cryptoData.high_24h > cryptoData.latest_price },
+                { label: 'Low 24h', value: `$${cryptoData.low_24h.toFixed(2)}`, change: `${((cryptoData.low_24h - cryptoData.latest_price) / cryptoData.latest_price * 100).toFixed(2)}%`, up: cryptoData.low_24h < cryptoData.latest_price },
+                { label: 'VWAP', value: `$${cryptoData.vwap.toFixed(2)}`, change: `Avg price`, up: true },
               ].map((stat, i) => (
                 <div key={i} className="bg-panel border border-border rounded-lg p-4">
                   <div className="text-xs text-secondary mb-1">{stat.label}</div>
                   <div className="text-lg font-bold text-primary mb-1">{stat.value}</div>
-                  <div className={`text-xs ${stat.up ? 'text-success' : 'text-red-500'}`}>
+                  <div className="text-xs text-secondary">
                     {stat.change}
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="col-span-4 text-center text-secondary py-8">
+                  Search for a crypto symbol (e.g., BTC, ETH) to view statistics
+                </div>
+              )}
             </div>
           </div>
 
@@ -279,7 +492,7 @@ export default function DashboardPage() {
                     <Bot className="h-3 w-3 text-accent" />
                   </div>
                   <div className="bg-elevated rounded-lg p-3 text-sm text-primary max-w-[85%]">
-                    Hello! I'm your AI trading assistant. How can I help you today?
+                    Hey! I'm your crypto trading assistant. What would you like to know about today's market?
                   </div>
                 </div>
 
@@ -293,7 +506,7 @@ export default function DashboardPage() {
                         </div>
                         <h4 className="text-lg font-bold mb-2 text-primary">AI Chat Locked</h4>
                         <p className="text-sm text-secondary mb-4">
-                          Upgrade to Pro to chat with our AI assistant
+                          Upgrade to Pro to chat with our AI assistant about crypto markets
                         </p>
                         <Link
                           href="/#pricing"
@@ -313,7 +526,7 @@ export default function DashboardPage() {
                 <div className={`flex gap-2 ${isLocked ? 'opacity-40 pointer-events-none' : ''}`}>
                   <input
                     type="text"
-                    placeholder={isLocked ? "Upgrade to chat..." : "Ask me anything..."}
+                    placeholder={isLocked ? "Upgrade to chat..." : "Ask about crypto..."}
                     disabled={isLocked}
                     className="flex-1 bg-elevated border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent"
                   />
