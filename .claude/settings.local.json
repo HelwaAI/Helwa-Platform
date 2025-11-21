@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install dotenv --save-dev)",
+      "Bash(node test-db-connection.js)",
+      "Bash(npm install --save-dev @types/pg)",
+      "Bash(npm install lightweight-charts)",
+      "Bash(npm install --save-dev @types/lightweight-charts)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:tradingview.github.io)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
