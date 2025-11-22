@@ -24,9 +24,8 @@ interface CryptoAggregate {
   volume_24h: number;
   high_24h: number;
   low_24h: number;
-  vwap: number;
   bars: Array<{
-    timestamp: string;
+    bucket: string;
     open: number;
     high: number;
     low: number;
@@ -150,17 +149,28 @@ export default function CryptoDashboardPage() {
       const candlestickSeries = chart.addSeries(CandlestickSeries);
 
       // Convert bars data to candlestick format
-      const candleData = cryptoData.bars.map((bar) => {
-        // Use full ISO timestamp to ensure unique times
-        const time = Math.floor(new Date(bar.timestamp).getTime() / 1000); // Unix timestamp in seconds
-        return {
-          time,
-          open: bar.open,
-          high: bar.high,
-          low: bar.low,
-          close: bar.close,
-        };
-      });
+      const candleData = cryptoData.bars
+        .map((bar) => {
+          // Convert bucket timestamp to Unix timestamp in seconds
+          const time = Math.floor(new Date(bar.bucket).getTime() / 1000);
+          return {
+            time,
+            open: Number(bar.open),
+            high: Number(bar.high),
+            low: Number(bar.low),
+            close: Number(bar.close),
+          };
+        })
+        // Filter out any invalid timestamps (NaN values)
+        .filter((candle) => !isNaN(candle.time))
+        // Sort by time in ascending order (required by lightweight-charts)
+        .sort((a, b) => a.time - b.time);
+
+      console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
+      if (candleData.length === 0) {
+        console.error('No valid candle data to render');
+        return;
+      }
 
       // Set data on the series
       candlestickSeries.setData(candleData as any);
@@ -178,13 +188,22 @@ export default function CryptoDashboardPage() {
 
           zonesData.zones.forEach((zone: any, index: number) => {
             try {
-              // Convert created_at to Unix timestamp in seconds
+              // Convert created_at to Unix timestamp in seconds (zone start on X axis)
               const zoneStartTime = Math.floor(new Date(zone.created_at).getTime() / 1000);
+
+              // Convert updated_at to Unix timestamp if it exists (zone end on X axis)
+              const zoneEndTime = zone.updated_at
+                ? Math.floor(new Date(zone.updated_at).getTime() / 1000)
+                : null;
+
               const topPrice = parseFloat(zone.top_price);
               const bottomPrice = parseFloat(zone.bottom_price);
 
-              // Convert time to pixel coordinate
+              // Convert time to pixel coordinates (X axis)
               const startX = timeScale.timeToCoordinate(zoneStartTime as any);
+              const endX = zoneEndTime
+                ? timeScale.timeToCoordinate(zoneEndTime as any)
+                : null;
 
               // Convert prices to pixel coordinates (Y axis) using candlestick series
               const topY = candlestickSeries.priceToCoordinate(topPrice);
@@ -194,6 +213,11 @@ export default function CryptoDashboardPage() {
               if (startX !== null && topY !== null && bottomY !== null && startX < chartWidth) {
                 const zoneHeight = Math.abs(bottomY - topY);
                 const zoneTop = Math.min(topY, bottomY);
+
+                // Calculate zone width: use endX if updated_at exists, otherwise extend to chart edge
+                const zoneWidth = (endX !== null && endX > startX)
+                  ? endX - startX
+                  : chartWidth - startX;
 
                 const zoneElement = document.createElement('div');
                 zoneElement.className = `zone-overlay zone-${zone.zone_type}`;
@@ -206,13 +230,19 @@ export default function CryptoDashboardPage() {
                 zoneElement.style.position = 'absolute';
                 zoneElement.style.left = `${startX}px`;
                 zoneElement.style.top = `${zoneTop}px`;
-                zoneElement.style.width = `${chartWidth - startX}px`;
+                zoneElement.style.width = `${zoneWidth}px`;
                 zoneElement.style.height = `${zoneHeight}px`;
                 zoneElement.style.backgroundColor = bgColor;
                 zoneElement.style.border = `1px solid ${borderColor}`;
                 zoneElement.style.borderLeft = `2px solid ${borderColor}`;
                 zoneElement.style.pointerEvents = 'none';
                 zoneElement.style.zIndex = '1';
+                zoneElement.style.display = 'flex';
+                zoneElement.style.alignItems = 'center';
+                zoneElement.style.paddingLeft = '8px';
+
+                // Add zone_id text
+                zoneElement.innerHTML = `<span style="color: black; font-size: 12px; font-weight: 500; pointer-events: none;">Zone ${zone.zone_id}</span>`;
 
                 // Add tooltip on hover
                 zoneElement.title = `${zone.zone_type.toUpperCase()} Zone - $${bottomPrice.toFixed(2)} to $${topPrice.toFixed(2)}`;
@@ -313,10 +343,10 @@ export default function CryptoDashboardPage() {
                 {cryptoData?.symbol || 'Select Crypto'}
               </span>
               <span className="text-lg font-bold text-success">
-                ${cryptoData?.latest_price.toFixed(2) || '0.00'}
+                ${cryptoData ? Number(cryptoData.latest_price).toFixed(2) : '0.00'}
               </span>
               <span className={`text-sm ${cryptoData && cryptoData.change_percent >= 0 ? 'text-success' : 'text-red-500'}`}>
-                {cryptoData ? `${cryptoData.change_percent >= 0 ? '+' : ''}${cryptoData.change_percent.toFixed(2)}%` : '0.00%'}
+                {cryptoData ? `${cryptoData.change_percent >= 0 ? '+' : ''}${Number(cryptoData.change_percent).toFixed(2)}%` : '0.00%'}
               </span>
             </div>
             {error && (
@@ -439,10 +469,9 @@ export default function CryptoDashboardPage() {
             {/* Bottom Stats Grid */}
             <div className="grid grid-cols-4 gap-4">
               {cryptoData ? [
-                { label: 'Volume 24h', value: `${(cryptoData.volume_24h / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
-                { label: 'High 24h', value: `$${cryptoData.high_24h.toFixed(2)}`, change: `+${((cryptoData.high_24h - cryptoData.latest_price) / cryptoData.latest_price * 100).toFixed(2)}%`, up: cryptoData.high_24h > cryptoData.latest_price },
-                { label: 'Low 24h', value: `$${cryptoData.low_24h.toFixed(2)}`, change: `${((cryptoData.low_24h - cryptoData.latest_price) / cryptoData.latest_price * 100).toFixed(2)}%`, up: cryptoData.low_24h < cryptoData.latest_price },
-                { label: 'VWAP', value: `$${cryptoData.vwap.toFixed(2)}`, change: `Avg price`, up: true },
+                { label: 'Volume 24h', value: `${(Number(cryptoData.volume_24h) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
+                { label: 'High 24h', value: `$${Number(cryptoData.high_24h).toFixed(2)}`, change: `+${((Number(cryptoData.high_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.high_24h) > Number(cryptoData.latest_price) },
+                { label: 'Low 24h', value: `$${Number(cryptoData.low_24h).toFixed(2)}`, change: `${((Number(cryptoData.low_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.low_24h) < Number(cryptoData.latest_price) },
               ].map((stat, i) => (
                 <div key={i} className="bg-panel border border-border rounded-lg p-4">
                   <div className="text-xs text-secondary mb-1">{stat.label}</div>

@@ -27,24 +27,41 @@ export async function GET(request: Request) {
 
   try {
     // Query crypto aggregates from crypto schema
+
+    // const query = `
+    // SELECT
+    // s.symbol,
+    // s.name AS company_name,
+    // mv.bucket,
+    // mv.open,
+    // mv.high,
+    // mv.low,
+    // mv.close,
+    // mv.volume
+    // FROM crypto.candles_5m mv
+    // JOIN crypto.symbols s ON mv.symbol_id = s.id
+    // WHERE 
+    //   ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
+    //   AND mv.bucket >= NOW() - INTERVAL '120 hours'
+    // ORDER BY mv.bucket DESC
+    // LIMIT $2`;
+
     const query = `
       SELECT
         s.symbol,
         s.name as company_name,
-        ma.timestamp,
-        ma.open,
-        ma.high,
-        ma.low,
-        ma.close,
-        ma.volume,
-        ma.vwap,
-        ma.num_trades
-      FROM crypto.minute_aggregates ma
-      JOIN crypto.symbols s ON ma.symbol_id = s.id
+        mv.bucket,
+        mv.open,
+        mv.high,
+        mv.low,
+        mv.close,
+        mv.volume
+      FROM crypto.candles_5m mv
+      JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
         ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        ma.timestamp >= NOW() - INTERVAL '120 hours'
-      ORDER BY ma.timestamp DESC
+        mv.bucket >= NOW() - INTERVAL '144 hours'
+      ORDER BY mv.bucket DESC
       LIMIT $2
     `;
     // Always pass symbols and limit in consistent order: $1 = symbols (or null), $2 = limit
@@ -76,9 +93,8 @@ export async function GET(request: Request) {
         volume_24h: data.reduce((sum, d) => sum + d.volume, 0),
         high_24h: Math.max(...data.map(d => d.high)),
         low_24h: Math.min(...data.map(d => d.low)),
-        vwap: latest.vwap,
         bars: data.reverse(), // Chronological order for charts
-        last_updated: latest.timestamp,
+        last_updated: latest.bucket,
       };
     });
 
