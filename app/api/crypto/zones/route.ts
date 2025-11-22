@@ -26,24 +26,48 @@ export async function GET(request: Request) {
 
   try {
     // Query zones by joining symbols table
-    const query = `
+
+    const query =`
       SELECT
         s.symbol,
-        s.name as company_name,
-        z.zone_id as zone_id,
+        s.name AS company_name,
+        z.zone_id AS zone_id,
         z.zone_type,
         z.created_at,
         z.updated_at,
         z.top_price,
-	      z.bottom_price
+        z.bottom_price,
+        z.timeframe_id
       FROM crypto.zones z
       JOIN crypto.symbols s ON z.symbol_id = s.id
+      JOIN shared.timeframes st ON z.timeframe_id = st.id
       WHERE
-        ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        z.bottom_price IS NOT NULL AND is_broken = False
+        z.bottom_price IS NOT NULL
+        AND z.is_broken = False
+        AND st.id = 4
+        ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
       ORDER BY s.symbol, z.bottom_price DESC
-      LIMIT $2
-    `;
+      LIMIT $2`;
+              
+    
+    // const query = `
+    //   SELECT
+    //     s.symbol,
+    //     s.name as company_name,
+    //     z.zone_id as zone_id,
+    //     z.zone_type,
+    //     z.created_at,
+    //     z.updated_at,
+    //     z.top_price,
+	  //     z.bottom_price
+    //   FROM crypto.zones z
+    //   JOIN crypto.symbols s ON z.symbol_id = s.id
+    //   WHERE
+    //     ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
+    //     z.bottom_price IS NOT NULL AND is_broken = False
+    //   ORDER BY s.symbol, z.bottom_price DESC
+    //   LIMIT $2
+    // `;
 
     // Always pass symbols and limit in consistent order: $1 = symbols (or null), $2 = limit
     const limit = parseInt(searchParams.get('limit') || '100');
