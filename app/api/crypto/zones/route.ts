@@ -37,6 +37,8 @@ export async function GET(request: Request) {
         z.updated_at,
         z.top_price,
         z.bottom_price,
+        z.start_time,
+        z.end_time,
         z.timeframe_id
       FROM crypto.zones z
       JOIN crypto.symbols s ON z.symbol_id = s.id
@@ -85,6 +87,8 @@ export async function GET(request: Request) {
         zone_type: row.zone_type,
         top_price: row.top_price,
         bottom_price: row.bottom_price,
+        start_time: row.start_time,
+        end_time: row.end_time,
         created_at: row.created_at,
         updated_at: row.updated_at,
       });

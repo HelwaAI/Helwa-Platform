@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\Users\\requr\\Downloads\\zaincandle\")",
+      "Bash(move \"C:\\Users\\requr\\Downloads\\zaincandle\\lightweight_dashboard.html\" \"C:\\Users\\requr\\Downloads\\zaincandle\\templates\\lightweight_dashboard.html\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

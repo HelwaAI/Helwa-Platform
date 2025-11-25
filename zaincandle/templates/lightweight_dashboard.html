@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{SYMBOL}} - Trading Dashboard</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            color: #d1d4dc;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .header {
+            padding: 16px 24px;
+            background: #1e222d;
+            border-bottom: 1px solid #2a2e39;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .symbol {
+            font-size: 24px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .market-type {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: rgba(41, 98, 255, 0.2);
+            color: #2962ff;
+            border: 1px solid #2962ff;
+        }
+
+        .timeframe-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .timeframe-tab {
+            padding: 8px 16px;
+            background: #2a2e39;
+            border: 1px solid #363a45;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .timeframe-tab:hover {
+            background: #363a45;
+            border-color: #434651;
+        }
+
+        .timeframe-tab.active {
+            background: #2962ff;
+            border-color: #2962ff;
+            color: #ffffff;
+        }
+
+        .chart-container {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+            position: relative;
+        }
+
+        .main-chart {
+            flex: 1;
+            position: relative;
+        }
+
+        .volume-profile {
+            width: 200px;
+            background: #1e222d;
+            border-left: 1px solid #2a2e39;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .vp-title {
+            padding: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #787b86;
+            border-bottom: 1px solid #2a2e39;
+        }
+
+        .vp-chart {
+            flex: 1;
+            padding: 12px;
+        }
+
+        .vp-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+            font-size: 11px;
+        }
+
+        .vp-bar-inner {
+            height: 20px;
+            background: #2962ff;
+            margin-right: 8px;
+            transition: background 0.2s;
+        }
+
+        .vp-bar.hvn .vp-bar-inner {
+            background: #26a69a;
+        }
+
+        .vp-bar.lvn .vp-bar-inner {
+            background: #ef5350;
+        }
+
+        .vp-price {
+            min-width: 80px;
+            color: #787b86;
+        }
+
+        .vp-volume {
+            color: #d1d4dc;
+            font-weight: 600;
+        }
+
+        .footer {
+            padding: 12px 24px;
+            background: #1e222d;
+            border-top: 1px solid #2a2e39;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #787b86;
+            flex-shrink: 0;
+        }
+
+        .legend {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(30, 34, 45, 0.9);
+            border: 1px solid #2a2e39;
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .legend-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        .legend-label {
+            color: #d1d4dc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <div class="symbol">{{SYMBOL}}</div>
+                <div class="market-type">{{MARKET_TYPE}}</div>
+            </div>
+            <div class="timeframe-tabs" id="timeframeTabs">
+                <!-- Timeframe tabs will be generated by TypeScript -->
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="main-chart" id="mainChart">
+                <div class="legend" id="legend">
+                    <!-- Legend will be populated by TypeScript -->
+                </div>
+            </div>
+            <div class="volume-profile">
+                <div class="vp-title">Dollar Volume Profile</div>
+                <div class="vp-chart" id="volumeProfile"></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <div id="footerInfo">Last Updated: {{TIMESTAMP}}</div>
+            <div>Powered by lightweight-charts</div>
+        </div>
+    </div>
+
+    <script>
+        // Data injected from Python (will be replaced with actual data)
+        const dashboardData = ({{DASHBOARD_DATA}});
+
+        // Chart instance
+        let chart = null;
+        let candleSeries = null;
+        let volumeSeries = null;
+        // Select first available timeframe dynamically
+        let currentTimeframe = Object.keys(dashboardData.timeframes)[0] || '5min';
+        const priceLines = [];
+        const zoneMarkers = [];
+        const rectangleSeries = [];
+
+        // Custom Rectangle Plugin (from https://stackoverflow.com/questions/78266794)
+        class RectanglePrimitive {
+            constructor(p1, p2, p3, p4, fillColor, lineColor, lineWidth, lineStyle) {
+                this._p1 = p1;
+                this._p2 = p2;
+                this._p3 = p3;
+                this._p4 = p4;
+                this._fillColor = fillColor;
+                this._lineColor = lineColor;
+                this._lineWidth = lineWidth;
+                this._lineStyle = lineStyle;
+            }
+
+            draw(target) {
+                target.useBitmapCoordinateSpace(scope => {
+                    const ctx = scope.context;
+                    const points = [this._p1, this._p2, this._p3, this._p4].map(point => ({
+                        x: Math.round(point.x * scope.horizontalPixelRatio),
+                        y: Math.round(point.y * scope.verticalPixelRatio)
+                    }));
+
+                    // Fill rectangle
+                    ctx.fillStyle = this._fillColor;
+                    ctx.beginPath();
+                    ctx.moveTo(points[0].x, points[0].y);
+                    ctx.lineTo(points[1].x, points[1].y);
+                    ctx.lineTo(points[2].x, points[2].y);
+                    ctx.lineTo(points[3].x, points[3].y);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Draw border
+                    ctx.strokeStyle = this._lineColor;
+                    ctx.lineWidth = this._lineWidth * scope.verticalPixelRatio;
+
+                    // Set line style (dashed or dotted)
+                    if (this._lineStyle === 'dashed') {
+                        ctx.setLineDash([10 * scope.horizontalPixelRatio, 5 * scope.horizontalPixelRatio]);
+                    } else if (this._lineStyle === 'dotted') {
+                        ctx.setLineDash([2 * scope.horizontalPixelRatio, 3 * scope.horizontalPixelRatio]);
+                    } else {
+                        ctx.setLineDash([]);
+                    }
+
+                    ctx.beginPath();
+                    ctx.moveTo(points[0].x, points[0].y);
+                    ctx.lineTo(points[1].x, points[1].y);
+                    ctx.lineTo(points[2].x, points[2].y);
+                    ctx.lineTo(points[3].x, points[3].y);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                });
+            }
+        }
+
+        class RectangleRenderer {
+            constructor(rectangle) {
+                this._rectangle = rectangle;
+            }
+
+            draw(target) {
+                this._rectangle.draw(target);
+            }
+        }
+
+        class RectangleView {
+            constructor(source, series) {
+                this._source = source;
+                this._series = series;
+            }
+
+            update() {
+                // Access chart and series from source object
+                const chart = this._source._chart;
+                const series = this._source._series;
+
+                if (!chart || !series) {
+                    this._renderer = null;
+                    return;
+                }
+
+                const timeScale = chart.timeScale();
+
+                // Get price to coordinate conversion from series
+                const y1 = series.priceToCoordinate(this._source._p1.price);
+                const y2 = series.priceToCoordinate(this._source._p2.price);
+                const x1 = timeScale.timeToCoordinate(this._source._p1.time);
+                const x2 = timeScale.timeToCoordinate(this._source._p2.time);
+
+                if (x1 === null || x2 === null || y1 === null || y2 === null) {
+                    this._renderer = null;
+                    return;
+                }
+
+                const p1 = { x: x1, y: y1 };
+                const p2 = { x: x2, y: y1 };
+                const p3 = { x: x2, y: y2 };
+                const p4 = { x: x1, y: y2 };
+
+                this._renderer = new RectangleRenderer(
+                    new RectanglePrimitive(
+                        p1, p2, p3, p4,
+                        this._source._fillColor,
+                        this._source._lineColor,
+                        this._source._lineWidth,
+                        this._source._lineStyle
+                    )
+                );
+            }
+
+            renderer() {
+                return this._renderer;
+            }
+        }
+
+        class Rectangle {
+            constructor(p1, p2, fillColor, lineColor, lineWidth = 2, lineStyle = 'solid') {
+                this._p1 = p1;
+                this._p2 = p2;
+                this._fillColor = fillColor;
+                this._lineColor = lineColor;
+                this._lineWidth = lineWidth;
+                this._lineStyle = lineStyle;
+                this._paneViews = null;
+                this._chart = null;
+                this._series = null;
+            }
+
+            updateAllViews() {
+                if (!this._paneViews) return;
+                this._paneViews.forEach(pw => pw.update());
+            }
+
+            paneViews() {
+                if (!this._paneViews) {
+                    this._paneViews = [new RectangleView(this)];
+                }
+                return this._paneViews;
+            }
+
+            attached(p) {
+                this._chart = p.chart;
+                this._series = p.series;
+                this.updateAllViews();
+                p.requestUpdate();
+            }
+
+            detached() {
+                this._chart = null;
+                this._series = null;
+            }
+        }
+
+        // Initialize chart
+        function initChart() {
+            const chartContainer = document.getElementById('mainChart');
+            if (!chartContainer) return;
+
+            chart = LightweightCharts.createChart(chartContainer, {
+                layout: {
+                    background: { color: '#1a1a1a' },
+                    textColor: 'rgba(255, 235, 59, 0.7)',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255, 235, 59, 0.15)' },
+                    horzLines: { color: 'rgba(255, 235, 59, 0.15)' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255, 235, 59, 0.3)',
+                    scaleMargins: {
+                        top: 0.05,
+                        bottom: 0.05,
+                    },
+                    autoScale: true,
+                },
+                timeScale: {
+                    borderColor: 'rgba(255, 235, 59, 0.3)',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+            });
+
+            // Add candlestick series
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderUpColor: '#26a69a',
+                borderDownColor: '#ef5350',
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+            });
+
+            // Add volume series
+            volumeSeries = chart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'volume',
+                },
+                priceScaleId: '',
+                scaleMargins: {
+                    top: 0.8,
+                    bottom: 0,
+                },
+            });
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                if (chart && chartContainer) {
+                    chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+                }
+            });
+        }
+
+        // Render timeframe tabs
+        function renderTimeframeTabs() {
+            const tabsContainer = document.getElementById('timeframeTabs');
+            if (!tabsContainer) return;
+
+            const timeframes = Object.keys(dashboardData.timeframes);
+            tabsContainer.innerHTML = '';
+
+            timeframes.forEach(tf => {
+                const tab = document.createElement('div');
+                tab.className = `timeframe-tab ${tf === currentTimeframe ? 'active' : ''}`;
+                tab.textContent = tf.toUpperCase();
+                tab.onclick = () => switchTimeframe(tf);
+                tabsContainer.appendChild(tab);
+            });
+        }
+
+        // Switch timeframe
+        function switchTimeframe(timeframe) {
+            currentTimeframe = timeframe;
+            renderTimeframeTabs();
+            updateChart();
+        }
+
+        // Clear all price lines, markers, and rectangle primitives
+        function clearChartDecorations() {
+            priceLines.forEach(line => candleSeries.removePriceLine(line));
+            priceLines.length = 0;
+            rectangleSeries.forEach(rect => {
+                if (candleSeries && candleSeries.detachPrimitive) {
+                    candleSeries.detachPrimitive(rect);
+                }
+            });
+            rectangleSeries.length = 0;
+        }
+
+        // Update chart with current timeframe data
+        function updateChart() {
+            const data = dashboardData.timeframes[currentTimeframe];
+            if (!data) return;
+
+            // Clear existing decorations
+            clearChartDecorations();
+
+            // Update candles
+            candleSeries.setData(data.candles);
+
+            // Update volume
+            const volumeData = data.candles.map(d => ({
+                time: d.time,
+                value: d.volume,
+                color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
+            }));
+            volumeSeries.setData(volumeData);
+
+            // Draw zones as filled rectangles using custom Rectangle plugin
+            data.zones.forEach(zone => {
+                const isDemand = zone.zone_type.toUpperCase() === 'DEMAND';
+
+                // Colors matching chart_generator.py
+                const fillColor = isDemand ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 82, 82, 0.3)';
+                const borderColor = isDemand ? '#4CAF50' : '#FF5252';
+
+                // Determine zone end time by checking for breaks in candle data
+                let zoneEndTime;
+                let isBroken = false;
+
+                // Find candles after zone start
+                const candlesAfterZone = data.candles.filter(c => c.time >= zone.start_time);
+
+                // Check each candle to see if it breaks the zone
+                // Zone is broken when price CLOSES beyond the zone (full penetration)
+                for (const candle of candlesAfterZone) {
+                    if (isDemand) {
+                        // Demand zone broken if CLOSE is below bottom price (full penetration down)
+                        if (candle.close < zone.bottom_price) {
+                            zoneEndTime = candle.time;
+                            isBroken = true;
+                            break;
+                        }
+                    } else {
+                        // Supply zone broken if CLOSE is above top price (full penetration up)
+                        if (candle.close > zone.top_price) {
+                            zoneEndTime = candle.time;
+                            isBroken = true;
+                            break;
+                        }
+                    }
+                }
+
+                // If not broken, extend to last candle
+                if (!isBroken) {
+                    const lastCandle = data.candles[data.candles.length - 1];
+                    zoneEndTime = lastCandle ? lastCandle.time : zone.end_time;
+                }
+
+                // Create rectangle plugin with solid border
+                const rectangle = new Rectangle(
+                    { time: zone.start_time, price: zone.top_price },  // Top-left
+                    { time: zoneEndTime, price: zone.bottom_price },    // Bottom-right
+                    fillColor,
+                    borderColor,
+                    2,
+                    'solid'  // Always use solid borders
+                );
+
+                candleSeries.attachPrimitive(rectangle);
+                rectangleSeries.push(rectangle);
+
+                // Add zone label on right side
+                const status = isBroken ? ' [BROKEN]' : '';
+                const zoneLabel = `${zone.zone_type} (${zone.zone_score.toFixed(1)})${status}`;
+
+                const labelLine = candleSeries.createPriceLine({
+                    price: (zone.top_price + zone.bottom_price) / 2,
+                    color: 'transparent',
+                    lineWidth: 0,
+                    axisLabelVisible: true,
+                    title: zoneLabel,
+                });
+                priceLines.push(labelLine);
+            });
+
+            // Update volume profile
+            renderVolumeProfile(data.volume_profile);
+
+            // Update legend
+            updateLegend(data.zones);
+
+            // Auto-scale to visible range with tight margins
+            chart.timeScale().fitContent();
+            chart.priceScale('right').applyOptions({
+                autoScale: true,
+                scaleMargins: {
+                    top: 0.02,
+                    bottom: 0.02,
+                },
+            });
+
+            // Subscribe to visible range changes for volume profile snapping and auto-scaling
+            chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+                updateVolumeProfileForVisibleRange(data.volume_profile);
+                // Force re-fit to visible candles
+                chart.priceScale('right').applyOptions({
+                    autoScale: true,
+                });
+            });
+        }
+
+        // Render volume profile with HVN/LVN badges
+        function renderVolumeProfile(nodes) {
+            const container = document.getElementById('volumeProfile');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (!nodes || nodes.length === 0) {
+                container.innerHTML = '<div style="padding: 12px; color: #787b86; font-size: 11px;">No volume profile data</div>';
+                return;
+            }
+
+            // Sort by price descending
+            const sortedNodes = [...nodes].sort((a, b) => b.price - a.price);
+
+            // Find max volume for scaling
+            const maxVolume = Math.max(...sortedNodes.map(n => n.dollar_volume));
+
+            // Count HVN/LVN nodes
+            const hvnCount = sortedNodes.filter(n => n.is_hvn).length;
+            const lvnCount = sortedNodes.filter(n => n.is_lvn).length;
+
+            // Add summary header
+            if (hvnCount > 0 || lvnCount > 0) {
+                const summary = document.createElement('div');
+                summary.style.padding = '8px 12px';
+                summary.style.fontSize = '10px';
+                summary.style.color = '#787b86';
+                summary.style.borderBottom = '1px solid #2a2e39';
+                summary.innerHTML = `HVN: ${hvnCount} | LVN: ${lvnCount}`;
+                container.appendChild(summary);
+            }
+
+            // Show top 20 nodes
+            sortedNodes.slice(0, 20).forEach(node => {
+                const bar = document.createElement('div');
+                bar.className = `vp-bar ${node.is_hvn ? 'hvn' : ''} ${node.is_lvn ? 'lvn' : ''}`;
+
+                const barWidth = (node.dollar_volume / maxVolume) * 100;
+                const barInner = document.createElement('div');
+                barInner.className = 'vp-bar-inner';
+                barInner.style.width = `${barWidth}%`;
+
+                const price = document.createElement('span');
+                price.className = 'vp-price';
+                price.textContent = `$${node.price.toFixed(2)}`;
+
+                // Add badge for HVN/LVN
+                let badge = '';
+                if (node.is_hvn) {
+                    badge = '<span style="background: #26a69a; color: #fff; padding: 2px 4px; border-radius: 2px; font-size: 9px; margin-left: 4px;">HVN</span>';
+                } else if (node.is_lvn) {
+                    badge = '<span style="background: #ef5350; color: #fff; padding: 2px 4px; border-radius: 2px; font-size: 9px; margin-left: 4px;">LVN</span>';
+                }
+
+                const volume = document.createElement('span');
+                volume.className = 'vp-volume';
+                volume.innerHTML = formatVolume(node.dollar_volume) + badge;
+
+                bar.appendChild(barInner);
+                bar.appendChild(price);
+                bar.appendChild(volume);
+                container.appendChild(bar);
+            });
+        }
+
+        // Update volume profile based on visible price range
+        function updateVolumeProfileForVisibleRange(allNodes) {
+            if (!chart || !candleSeries) return;
+
+            // Get visible price range
+            const priceScale = chart.priceScale('right');
+            const visibleRange = candleSeries.barsInLogicalRange(chart.timeScale().getVisibleLogicalRange());
+
+            if (!visibleRange || !allNodes || allNodes.length === 0) {
+                renderVolumeProfile(allNodes);
+                return;
+            }
+
+            // Get visible candles to determine price range
+            const data = dashboardData.timeframes[currentTimeframe];
+            if (!data || !data.candles || data.candles.length === 0) {
+                renderVolumeProfile(allNodes);
+                return;
+            }
+
+            const visibleCandles = data.candles.slice(
+                Math.max(0, Math.floor(visibleRange.from)),
+                Math.min(data.candles.length, Math.ceil(visibleRange.to) + 1)
+            );
+
+            if (visibleCandles.length === 0) {
+                renderVolumeProfile(allNodes);
+                return;
+            }
+
+            // Calculate visible price range
+            const visibleHigh = Math.max(...visibleCandles.map(c => c.high));
+            const visibleLow = Math.min(...visibleCandles.map(c => c.low));
+
+            // Filter volume profile nodes to visible price range
+            const visibleNodes = allNodes.filter(node =>
+                node.price >= visibleLow && node.price <= visibleHigh
+            );
+
+            // Render filtered volume profile
+            renderVolumeProfile(visibleNodes.length > 0 ? visibleNodes : allNodes);
+        }
+
+        // Update legend with active and broken zone counts
+        function updateLegend(zones) {
+            const legend = document.getElementById('legend');
+            if (!legend) return;
+
+            const activeDemand = zones.filter(z => z.zone_type.toUpperCase() === 'DEMAND' && !z.is_broken).length;
+            const activeSupply = zones.filter(z => z.zone_type.toUpperCase() === 'SUPPLY' && !z.is_broken).length;
+            const brokenDemand = zones.filter(z => z.zone_type.toUpperCase() === 'DEMAND' && z.is_broken).length;
+            const brokenSupply = zones.filter(z => z.zone_type.toUpperCase() === 'SUPPLY' && z.is_broken).length;
+
+            legend.innerHTML = `
+                <div style="font-weight: 600; margin-bottom: 8px; font-size: 11px; color: #fff;">ACTIVE ZONES</div>
+                <div class="legend-row">
+                    <div class="legend-color" style="background: #26a69a;"></div>
+                    <div class="legend-label">Demand (${activeDemand})</div>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-color" style="background: #ef5350;"></div>
+                    <div class="legend-label">Supply (${activeSupply})</div>
+                </div>
+                ${brokenDemand + brokenSupply > 0 ? `
+                <div style="font-weight: 600; margin-top: 12px; margin-bottom: 8px; font-size: 11px; color: #787b86;">BROKEN ZONES</div>
+                <div class="legend-row">
+                    <div class="legend-color" style="background: #26a69a40; border: 1px dotted #26a69a;"></div>
+                    <div class="legend-label" style="color: #787b86;">Demand (${brokenDemand})</div>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-color" style="background: #ef535040; border: 1px dotted #ef5350;"></div>
+                    <div class="legend-label" style="color: #787b86;">Supply (${brokenSupply})</div>
+                </div>
+                ` : ''}
+            `;
+        }
+
+        // Format volume for display
+        function formatVolume(volume) {
+            if (volume >= 1e9) return `$${(volume / 1e9).toFixed(2)}B`;
+            if (volume >= 1e6) return `$${(volume / 1e6).toFixed(1)}M`;
+            if (volume >= 1e3) return `$${(volume / 1e3).toFixed(0)}K`;
+            return `$${volume.toFixed(0)}`;
+        }
+
+        // Initialize dashboard
+        function init() {
+            initChart();
+            renderTimeframeTabs();
+            updateChart();
+        }
+
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>
