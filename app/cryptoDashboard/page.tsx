@@ -180,55 +180,60 @@ export default function CryptoDashboardPage() {
         // Clear existing zone overlays
         const existingZones = chartContainerRef.current?.querySelectorAll('.zone-overlay');
         existingZones?.forEach(el => el.remove());
-
+      
         // Re-render zones at new positions
         if (zonesData && zonesData.zones && candleData.length > 0) {
           const timeScale = chart.timeScale();
           const chartWidth = chartContainerRef.current?.clientWidth || 0;
-
+          
           zonesData.zones.forEach((zone: any, index: number) => {
             try {
-              // Convert created_at to Unix timestamp in seconds (zone start on X axis)
-              const zoneStartTime = Math.floor(new Date(zone.created_at).getTime() / 1000);
-
-              // Convert updated_at to Unix timestamp if it exists (zone end on X axis)
-              const zoneEndTime = zone.updated_at
-                ? Math.floor(new Date(zone.updated_at).getTime() / 1000)
-                : null;
-
               const topPrice = parseFloat(zone.top_price);
               const bottomPrice = parseFloat(zone.bottom_price);
-
+      
+              // Convert start_time to Unix timestamp in seconds
+              const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
+              
+              // Convert end_time to Unix timestamp if it exists (null means zone extends to current time)
+              const zoneEndTime = zone.end_time 
+                ? Math.floor(new Date(zone.end_time).getTime() / 1000)
+                : null;
+      
               // Convert time to pixel coordinates (X axis)
               const startX = timeScale.timeToCoordinate(zoneStartTime as any);
-              const endX = zoneEndTime
+              const endX = zoneEndTime 
                 ? timeScale.timeToCoordinate(zoneEndTime as any)
-                : null;
-
+                : chartWidth; // If no end_time, extend to right edge
+      
               // Convert prices to pixel coordinates (Y axis) using candlestick series
               const topY = candlestickSeries.priceToCoordinate(topPrice);
               const bottomY = candlestickSeries.priceToCoordinate(bottomPrice);
-
-              // Create zone rectangle element
-              if (startX !== null && topY !== null && bottomY !== null && startX < chartWidth) {
+      
+              // Only render if zone is visible and coordinates are valid
+              if (startX !== null && topY !== null && bottomY !== null) {
+                // Calculate zone width
+                const zoneWidth = endX !== null 
+                  ? Math.max(0, endX - startX)  // Use actual end position if available
+                  : chartWidth - startX;         // Otherwise extend to chart edge
+      
+                // Skip if zone is completely off-screen
+                if (startX > chartWidth || (endX !== null && endX < 0)) {
+                  return;
+                }
+      
                 const zoneHeight = Math.abs(bottomY - topY);
                 const zoneTop = Math.min(topY, bottomY);
-
-                // Calculate zone width: use endX if updated_at exists, otherwise extend to chart edge
-                const zoneWidth = (endX !== null && endX > startX)
-                  ? endX - startX
-                  : chartWidth - startX;
-
+      
                 const zoneElement = document.createElement('div');
                 zoneElement.className = `zone-overlay zone-${zone.zone_type}`;
-
+      
                 // Determine color based on zone_type
                 const isSupply = zone.zone_type === 'supply';
                 const bgColor = isSupply ? 'rgba(236, 72, 153, 0.15)' : 'rgba(16, 185, 129, 0.15)';
                 const borderColor = isSupply ? 'rgba(236, 72, 153, 0.4)' : 'rgba(16, 185, 129, 0.4)';
-
+      
                 zoneElement.style.position = 'absolute';
-                zoneElement.style.left = `${startX}px`;
+                zoneElement.style.left = `${Math.max(0, startX)}px`; // Clip to chart left edge
                 zoneElement.style.top = `${zoneTop}px`;
                 zoneElement.style.width = `${zoneWidth}px`;
                 zoneElement.style.height = `${zoneHeight}px`;
@@ -240,14 +245,28 @@ export default function CryptoDashboardPage() {
                 zoneElement.style.display = 'flex';
                 zoneElement.style.alignItems = 'center';
                 zoneElement.style.paddingLeft = '8px';
-
+      
                 // Add zone_id text
-                zoneElement.innerHTML = `<span style="color: black; font-size: 12px; font-weight: 500; pointer-events: none;">Zone ${zone.zone_id}</span>`;
-
+                zoneElement.innerHTML = `<span style="color: ${borderColor}; font-size: 12px; font-weight: 500; pointer-events: none;">Zone ${zone.zone_id}</span>`;
+      
                 // Add tooltip on hover
-                zoneElement.title = `${zone.zone_type.toUpperCase()} Zone - $${bottomPrice.toFixed(2)} to $${topPrice.toFixed(2)}`;
-
+                const startTimeStr = new Date(zone.start_time).toLocaleString();
+                const endTimeStr = zone.end_time ? ` to ${new Date(zone.end_time).toLocaleString()}` : ' (active)';
+                zoneElement.title = `${zone.zone_type.toUpperCase()} Zone - $${bottomPrice.toFixed(2)} to $${topPrice.toFixed(2)}\n${startTimeStr}${endTimeStr}`;
+      
                 chartContainerRef.current?.appendChild(zoneElement);
+      
+                // // Debug logging
+                // console.log(`Zone ${zone.zone_id} rendered:`, {
+                //   type: zone.zone_type,
+                //   startTime: zone.start_time,
+                //   endTime: zone.end_time,
+                //   topPrice,
+                //   bottomPrice,
+                //   startX,
+                //   endX,
+                //   zoneWidth
+                // });
               }
             } catch (zoneErr) {
               console.error(`Error rendering zone ${index}:`, zoneErr);
