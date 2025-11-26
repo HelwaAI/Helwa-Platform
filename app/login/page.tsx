@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function LoginPage() {
   const handleLogin = () => {
     // Redirect to Azure Easy Auth login endpoint
-    window.location.href = "/.auth/login/aad?post_login_redirect_uri=/dashboard";
+    window.location.href = "/.auth/login/aad?post_login_redirect_uri=/cryptoDashboard";
   };
 
   return (

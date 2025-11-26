@@ -320,7 +320,7 @@ export default function CryptoDashboardPage() {
 
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  /*
+  
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
     fetch('/.auth/me')
@@ -339,7 +339,7 @@ export default function CryptoDashboardPage() {
         setLoading(false);
       });
   }, []);
-  */
+  
 
   // Fetch crypto data based on symbol
   const fetchCryptoData = async (symbol: string) => {
