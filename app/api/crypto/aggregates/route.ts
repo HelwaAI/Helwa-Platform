@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
         ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        mv.bucket >= NOW() - INTERVAL '144 hours'
+        mv.bucket >= NOW() - INTERVAL '240 hours'
       ORDER BY mv.bucket DESC
       LIMIT $2
     `;

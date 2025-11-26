@@ -7,7 +7,272 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
-import { createChart, CandlestickSeries } from "lightweight-charts";
+import { createChart, CandlestickSeries, MouseEventParams, ISeriesApi, SeriesType, Time, IChartApi } from "lightweight-charts";
+import { RectangleDrawingTool } from "../../rectangle-drawing-tool";
+
+// ============================================================================
+// Zone Primitive Classes - Using lightweight-charts primitive plugin system
+// These classes render zones that automatically update on zoom/pan
+// ============================================================================
+
+interface ZonePoint {
+  time: Time;
+  price: number;
+}
+
+interface ZonePrimitiveOptions {
+  fillColor: string;
+  borderColor: string;
+  showLabel: boolean;
+  labelText: string;
+}
+
+// Renderer that draws the zone rectangle
+class ZonePaneRenderer {
+  private _p1: { x: number | null; y: number | null };
+  private _p2: { x: number | null; y: number | null };
+  private _options: ZonePrimitiveOptions;
+
+  constructor(
+    p1: { x: number | null; y: number | null },
+    p2: { x: number | null; y: number | null },
+    options: ZonePrimitiveOptions
+  ) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._options = options;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      if (
+        this._p1.x === null ||
+        this._p1.y === null ||
+        this._p2.x === null ||
+        this._p2.y === null
+      ) return;
+
+      const ctx = scope.context;
+      const x1 = Math.round(this._p1.x * scope.horizontalPixelRatio);
+      const y1 = Math.round(this._p1.y * scope.verticalPixelRatio);
+      const x2 = Math.round(this._p2.x * scope.horizontalPixelRatio);
+      const y2 = Math.round(this._p2.y * scope.verticalPixelRatio);
+
+      const left = Math.min(x1, x2);
+      const top = Math.min(y1, y2);
+      const width = Math.abs(x2 - x1);
+      const height = Math.abs(y2 - y1);
+
+      // Fill
+      ctx.fillStyle = this._options.fillColor;
+      ctx.fillRect(left, top, width, height);
+
+      // Border
+      ctx.strokeStyle = this._options.borderColor;
+      ctx.lineWidth = 1 * scope.horizontalPixelRatio;
+      ctx.strokeRect(left, top, width, height);
+
+      // Left border (thicker)
+      ctx.lineWidth = 2 * scope.horizontalPixelRatio;
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(left, top + height);
+      ctx.stroke();
+
+      // Label
+      if (this._options.showLabel && width > 50 * scope.horizontalPixelRatio) {
+        ctx.fillStyle = this._options.borderColor;
+        ctx.font = `${11 * scope.verticalPixelRatio}px sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          this._options.labelText,
+          left + 8 * scope.horizontalPixelRatio,
+          top + height / 2
+        );
+      }
+    });
+  }
+}
+
+// Pane view that manages coordinate conversion and creates renderer
+class ZonePaneView {
+  private _source: ZonePrimitive;
+  private _p1: { x: number | null; y: number | null } = { x: null, y: null };
+  private _p2: { x: number | null; y: number | null } = { x: null, y: null };
+
+  constructor(source: ZonePrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    const series = this._source.series;
+    const chart = this._source.chart;
+    if (!series || !chart) return;
+
+    const timeScale = chart.timeScale();
+    
+    // Convert data coordinates (time, price) to pixel coordinates
+    this._p1 = {
+      x: timeScale.timeToCoordinate(this._source.p1.time),
+      y: series.priceToCoordinate(this._source.p1.price)
+    };
+    this._p2 = {
+      x: timeScale.timeToCoordinate(this._source.p2.time),
+      y: series.priceToCoordinate(this._source.p2.price)
+    };
+  }
+
+  renderer() {
+    return new ZonePaneRenderer(this._p1, this._p2, this._source.options);
+  }
+}
+
+// The main primitive class that gets attached to the series
+class ZonePrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: ZonePaneView[];
+  private _p1: ZonePoint;
+  private _p2: ZonePoint;
+  private _options: ZonePrimitiveOptions;
+  private _requestUpdate?: () => void;
+
+  constructor(p1: ZonePoint, p2: ZonePoint, options: ZonePrimitiveOptions) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._options = options;
+    this._paneViews = [new ZonePaneView(this)];
+  }
+
+  // Called by lightweight-charts when the primitive is attached
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  // Called by lightweight-charts when the primitive is detached
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  // Getters for the pane view to access
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get p1() { return this._p1; }
+  get p2() { return this._p2; }
+  get options() { return this._options; }
+
+  // Called by lightweight-charts to get pane views for rendering
+  paneViews() {
+    return this._paneViews;
+  }
+
+  // Called by lightweight-charts before rendering - we update coordinates here
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  // Request a re-render
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
+// Extended RectangleDrawingTool with snapping functionality
+// ============================================================================
+
+class SnappingRectangleDrawingTool extends RectangleDrawingTool {
+  private candleData: Array<{ time: number; open: number; high: number; low: number; close: number }>;
+  private originalClickHandler: any;
+  private snappingClickHandler: any;
+
+  constructor(
+    chart: any,
+    series: ISeriesApi<SeriesType>,
+    drawingsToolbarContainer: HTMLDivElement,
+    options: any,
+    candleData: Array<{ time: number; open: number; high: number; low: number; close: number }>
+  ) {
+    super(chart, series, drawingsToolbarContainer, options);
+    this.candleData = candleData;
+    this.originalClickHandler = (this as any)._clickHandler;
+    this.setupSnapping();
+  }
+
+  // Setup snapping by replacing the click handler
+  private setupSnapping() {
+    const chart = (this as any)._chart;
+    const series = (this as any)._series;
+
+    // Create new snapping click handler
+    this.snappingClickHandler = (param: MouseEventParams) => {
+      if (!(this as any)._drawing || !param.point || !param.time || !series) {
+        return this.originalClickHandler.call(this, param);
+      }
+
+      const rawPrice = series.coordinateToPrice(param.point.y);
+      if (rawPrice === null) {
+        return this.originalClickHandler.call(this, param);
+      }
+
+      // Find nearest candle by time
+      const clickTime = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+      let nearestCandle = this.candleData[0];
+      let minTimeDiff = Math.abs(clickTime - nearestCandle.time);
+
+      for (const candle of this.candleData) {
+        const timeDiff = Math.abs(clickTime - candle.time);
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          nearestCandle = candle;
+        }
+      }
+
+      // Snap to nearest high or low
+      const distToHigh = Math.abs(rawPrice - nearestCandle.high);
+      const distToLow = Math.abs(rawPrice - nearestCandle.low);
+      const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
+
+      // Log snapping for debugging
+      console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+
+      // Create modified param with snapped price
+      const snappedY = series.priceToCoordinate(snappedPrice);
+      const modifiedParam = {
+        ...param,
+        point: snappedY !== null ? { ...param.point, y: snappedY } : param.point,
+      };
+
+      return this.originalClickHandler.call(this, modifiedParam);
+    };
+
+    // Unsubscribe original handler and subscribe with snapping handler
+    chart.unsubscribeClick(this.originalClickHandler);
+    chart.subscribeClick(this.snappingClickHandler);
+
+    // Update the internal reference
+    (this as any)._clickHandler = this.snappingClickHandler;
+  }
+
+  // Override remove to properly cleanup
+  remove() {
+    const chart = (this as any)._chart;
+    if (chart && this.snappingClickHandler) {
+      chart.unsubscribeClick(this.snappingClickHandler);
+    }
+    super.remove();
+  }
+}
+
+// ============================================================================
+// Component Interfaces
+// ============================================================================
 
 interface UserInfo {
   name: string;
@@ -35,6 +300,10 @@ interface CryptoAggregate {
   last_updated: string;
 }
 
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function CryptoDashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "free" });
@@ -45,10 +314,13 @@ export default function CryptoDashboardPage() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const drawingToolbarRef = useRef<HTMLDivElement>(null);
+  const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
+  const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
 
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  /*
+  
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
     fetch('/.auth/me')
@@ -67,7 +339,7 @@ export default function CryptoDashboardPage() {
         setLoading(false);
       });
   }, []);
-  */
+  
 
   // Fetch crypto data based on symbol
   const fetchCryptoData = async (symbol: string) => {
@@ -146,7 +418,14 @@ export default function CryptoDashboardPage() {
       });
 
       // Add candlestick series
-      const candlestickSeries = chart.addSeries(CandlestickSeries);
+      const candlestickSeries = chart.addSeries(CandlestickSeries, {
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderUpColor: '#26a69a',
+        borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+      });
 
       // Convert bars data to candlestick format
       const candleData = cryptoData.bars
@@ -175,111 +454,120 @@ export default function CryptoDashboardPage() {
       // Set data on the series
       candlestickSeries.setData(candleData as any);
 
-      // Function to update zone positions when chart changes
-      const updateZonePositions = () => {
-        // Clear existing zone overlays
-        const existingZones = chartContainerRef.current?.querySelectorAll('.zone-overlay');
-        existingZones?.forEach(el => el.remove());
-      
-        // Re-render zones at new positions
-        if (zonesData && zonesData.zones && candleData.length > 0) {
-          const timeScale = chart.timeScale();
-          const chartWidth = chartContainerRef.current?.clientWidth || 0;
-          
-          zonesData.zones.forEach((zone: any, index: number) => {
-            try {
-              const topPrice = parseFloat(zone.top_price);
-              const bottomPrice = parseFloat(zone.bottom_price);
-      
-              // Convert start_time to Unix timestamp in seconds
-              const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
-              
-              // Convert end_time to Unix timestamp if it exists (null means zone extends to current time)
-              const zoneEndTime = zone.end_time 
-                ? Math.floor(new Date(zone.end_time).getTime() / 1000)
-                : null;
-      
-              // Convert time to pixel coordinates (X axis)
-              const startX = timeScale.timeToCoordinate(zoneStartTime as any);
-              const endX = zoneEndTime 
-                ? timeScale.timeToCoordinate(zoneEndTime as any)
-                : chartWidth; // If no end_time, extend to right edge
-      
-              // Convert prices to pixel coordinates (Y axis) using candlestick series
-              const topY = candlestickSeries.priceToCoordinate(topPrice);
-              const bottomY = candlestickSeries.priceToCoordinate(bottomPrice);
-      
-              // Only render if zone is visible and coordinates are valid
-              if (startX !== null && topY !== null && bottomY !== null) {
-                // Calculate zone width
-                const zoneWidth = endX !== null 
-                  ? Math.max(0, endX - startX)  // Use actual end position if available
-                  : chartWidth - startX;         // Otherwise extend to chart edge
-      
-                // Skip if zone is completely off-screen
-                if (startX > chartWidth || (endX !== null && endX < 0)) {
-                  return;
-                }
-      
-                const zoneHeight = Math.abs(bottomY - topY);
-                const zoneTop = Math.min(topY, bottomY);
-      
-                const zoneElement = document.createElement('div');
-                zoneElement.className = `zone-overlay zone-${zone.zone_type}`;
-      
-                // Determine color based on zone_type
-                const isSupply = zone.zone_type === 'supply';
-                const bgColor = isSupply ? 'rgba(236, 72, 153, 0.15)' : 'rgba(16, 185, 129, 0.15)';
-                const borderColor = isSupply ? 'rgba(236, 72, 153, 0.4)' : 'rgba(16, 185, 129, 0.4)';
-      
-                zoneElement.style.position = 'absolute';
-                zoneElement.style.left = `${Math.max(0, startX)}px`; // Clip to chart left edge
-                zoneElement.style.top = `${zoneTop}px`;
-                zoneElement.style.width = `${zoneWidth}px`;
-                zoneElement.style.height = `${zoneHeight}px`;
-                zoneElement.style.backgroundColor = bgColor;
-                zoneElement.style.border = `1px solid ${borderColor}`;
-                zoneElement.style.borderLeft = `2px solid ${borderColor}`;
-                zoneElement.style.pointerEvents = 'none';
-                zoneElement.style.zIndex = '1';
-                zoneElement.style.display = 'flex';
-                zoneElement.style.alignItems = 'center';
-                zoneElement.style.paddingLeft = '8px';
-      
-                // Add zone_id text
-                zoneElement.innerHTML = `<span style="color: ${borderColor}; font-size: 12px; font-weight: 500; pointer-events: none;">Zone ${zone.zone_id}</span>`;
-      
-                // Add tooltip on hover
-                const startTimeStr = new Date(zone.start_time).toLocaleString();
-                const endTimeStr = zone.end_time ? ` to ${new Date(zone.end_time).toLocaleString()}` : ' (active)';
-                zoneElement.title = `${zone.zone_type.toUpperCase()} Zone - $${bottomPrice.toFixed(2)} to $${topPrice.toFixed(2)}\n${startTimeStr}${endTimeStr}`;
-      
-                chartContainerRef.current?.appendChild(zoneElement);
-      
-                // // Debug logging
-                // console.log(`Zone ${zone.zone_id} rendered:`, {
-                //   type: zone.zone_type,
-                //   startTime: zone.start_time,
-                //   endTime: zone.end_time,
-                //   topPrice,
-                //   bottomPrice,
-                //   startX,
-                //   endX,
-                //   zoneWidth
-                // });
-              }
-            } catch (zoneErr) {
-              console.error(`Error rendering zone ${index}:`, zoneErr);
-            }
-          });
-        }
-      };
-
-      // Initial zone rendering
-      updateZonePositions();
-
       // Fit content to view
       chart.timeScale().fitContent();
+
+      // Initialize Rectangle Drawing Tool with snapping
+      if (drawingToolbarRef.current) {
+        // Clean up existing drawing tool if any
+        if (drawingToolRef.current) {
+          drawingToolRef.current.remove();
+        }
+
+        // Create snapping drawing tool with supply/demand zone colors
+        drawingToolRef.current = new SnappingRectangleDrawingTool(
+          chart,
+          candlestickSeries as any,
+          drawingToolbarRef.current,
+          {
+            fillColor: 'rgba(255, 82, 82, 0.3)', // Supply zone (red)
+            previewFillColor: 'rgba(255, 82, 82, 0.15)',
+            labelColor: '#FF5252',
+            labelTextColor: 'white',
+            showLabels: true,
+            priceLabelFormatter: (price: number) => `$${price.toFixed(2)}`,
+            timeLabelFormatter: (time: any) => {
+              const date = new Date(time * 1000);
+              return date.toLocaleString();
+            },
+          },
+          candleData
+        );
+      }
+
+      // Clean up existing zone primitives
+      zonePrimitivesRef.current.forEach(primitive => {
+        candlestickSeries.detachPrimitive(primitive);
+      });
+      zonePrimitivesRef.current = [];
+
+      // Create zone primitives using lightweight-charts primitive system
+      if (zonesData && zonesData.zones && candleData.length > 0) {
+        zonesData.zones.forEach((zone: any) => {
+          try {
+            const isDemand = zone.zone_type.toLowerCase() === 'demand';
+            const topPrice = parseFloat(zone.top_price);
+            const bottomPrice = parseFloat(zone.bottom_price);
+
+            // Convert start_time to Unix timestamp in seconds
+            const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
+
+            // Determine zone end time by checking for breaks in candle data
+            let zoneEndTime: number;
+            let isBroken = false;
+
+            // Find candles after zone start
+            const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+
+            // Check each candle to see if it breaks the zone
+            // Zone is broken when price CLOSES beyond the zone (full penetration)
+            for (const candle of candlesAfterZone) {
+              if (isDemand) {
+                // Demand zone broken if CLOSE is below bottom price
+                if (candle.close < bottomPrice) {
+                  zoneEndTime = candle.time;
+                  isBroken = true;
+                  break;
+                }
+              } else {
+                // Supply zone broken if CLOSE is above top price
+                if (candle.close > topPrice) {
+                  zoneEndTime = candle.time;
+                  isBroken = true;
+                  break;
+                }
+              }
+            }
+
+            // If not broken, extend to last candle
+            if (!isBroken) {
+              const lastCandle = candleData[candleData.length - 1];
+              zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+            }
+
+            // Colors for demand (green) and supply (red) zones
+            const fillColor = isDemand ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 82, 82, 0.3)';
+            const borderColor = isDemand ? '#4CAF50' : '#FF5252';
+
+            // Create zone primitive with start and end points
+            const zonePrimitive = new ZonePrimitive(
+              { time: zoneStartTime as Time, price: topPrice },
+              { time: zoneEndTime as Time, price: bottomPrice },
+              {
+                fillColor,
+                borderColor,
+                showLabel: true,
+                labelText: `Zone ${zone.zone_id}${isBroken ? ' [BROKEN]' : ''}`
+              }
+            );
+
+            // Attach primitive to the series - this integrates it with the chart's rendering pipeline
+            candlestickSeries.attachPrimitive(zonePrimitive);
+            zonePrimitivesRef.current.push(zonePrimitive);
+
+            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+              type: zone.zone_type,
+              isBroken,
+              startTime: new Date(zoneStartTime * 1000).toISOString(),
+              endTime: new Date(zoneEndTime! * 1000).toISOString(),
+              topPrice,
+              bottomPrice
+            });
+          } catch (err) {
+            console.error(`Error creating zone primitive:`, err);
+          }
+        });
+      }
 
       // Handle window resize
       const handleResize = () => {
@@ -293,19 +581,25 @@ export default function CryptoDashboardPage() {
 
       window.addEventListener('resize', handleResize);
 
-      // Subscribe to chart changes to update zones
-      chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-        updateZonePositions();
-      });
-
       return () => {
         window.removeEventListener('resize', handleResize);
+        
+        // Clean up zone primitives
+        zonePrimitivesRef.current.forEach(primitive => {
+          candlestickSeries.detachPrimitive(primitive);
+        });
+        zonePrimitivesRef.current = [];
+        
+        if (drawingToolRef.current) {
+          drawingToolRef.current.remove();
+          drawingToolRef.current = null;
+        }
         chart.remove();
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [cryptoData]);
+  }, [cryptoData, zonesData]);
 
   const isLocked = user.role === "free";
 
@@ -437,7 +731,12 @@ export default function CryptoDashboardPage() {
                     ))}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  {/* Drawing Tools Toolbar */}
+                  <div
+                    ref={drawingToolbarRef}
+                    className="flex gap-1 items-center border-r border-border pr-2 mr-2"
+                  />
                   <button className="p-1.5 hover:bg-elevated rounded transition-colors">
                     <BarChart3 className="h-4 w-4 text-secondary" />
                   </button>
