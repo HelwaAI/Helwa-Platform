@@ -1,0 +1,12 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/crypto/aggregates/route": "/api/crypto/aggregates",
+  "/api/crypto/zones/route": "/api/crypto/zones",
+  "/api/stocks/aggregates/route": "/api/stocks/aggregates",
+  "/cryptoDashboard/page": "/cryptoDashboard",
+  "/dashboard/page": "/dashboard",
+  "/login/page": "/login",
+  "/page": "/",
+  "/signup/page": "/signup"
+}
