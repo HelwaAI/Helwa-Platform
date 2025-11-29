@@ -51,7 +51,7 @@ export async function GET(request: Request) {
       ORDER BY s.symbol, z.bottom_price DESC
       LIMIT $2`;
               
-    
+    // Old Query
     // const query = `
     //   SELECT
     //     s.symbol,
