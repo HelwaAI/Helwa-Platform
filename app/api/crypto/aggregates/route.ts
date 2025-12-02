@@ -2,6 +2,31 @@ import { NextResponse } from 'next/server';
 import pkg from 'pg';
 const { Pool } = pkg;
 
+
+/*
+1d: 23
+2m: 2
+3m: 3
+5d: N/A
+5m: 4
+6m: 5
+10m: 6
+13m: 7
+15m: 8
+22d: N/A
+26m: 9
+30m: 10
+39m: 11
+65d: N/A  
+65m: 12
+78m: 13
+130m: 14
+195m: 15
+390m: 17
+
+*/
+
+
 // Load environment variables from .env.local
 if (process.env.NODE_ENV === 'development') {
   require('dotenv').config({ path: '.env.local' });
@@ -60,7 +85,7 @@ export async function GET(request: Request) {
       JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
         ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        mv.bucket >= NOW() - INTERVAL '312 hours'
+        mv.bucket >= NOW() - INTERVAL '144 hours'
       ORDER BY mv.bucket DESC
       LIMIT $2
     `;
