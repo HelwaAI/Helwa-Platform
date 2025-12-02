@@ -2,6 +2,21 @@ import { NextResponse } from 'next/server';
 import pkg from 'pg';
 const { Pool } = pkg;
 
+
+const timeframeMap = {
+  "5m": 1,
+  "15m": 2,
+  "30m": 3,
+  "1h": 4,
+  "2h": 6,
+  "4h": 9,
+  "8h": 11,
+  "1d": 12,
+  "7d": 13,
+  "31d": 14,
+  "93d": 15
+};
+
 // Load environment variables from .env.local
 if (process.env.NODE_ENV === 'development') {
   require('dotenv').config({ path: '.env.local' });
@@ -23,6 +38,10 @@ const pool = new Pool({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbols = searchParams.get('symbols')?.split(',') || [];
+  const timeframe = searchParams.get('timeframe') || '5m';
+
+  // Get timeframe ID from map
+  const timeframeId = timeframeMap[timeframe as keyof typeof timeframeMap] || 1;
 
   try {
     // Query zones by joining symbols table
@@ -42,11 +61,11 @@ export async function GET(request: Request) {
         z.timeframe_id
       FROM crypto.zones z
       JOIN crypto.symbols s ON z.symbol_id = s.id
-      JOIN shared.timeframes st ON z.timeframe_id = st.id
+      JOIN crypto.timeframes st ON z.timeframe_id = st.id
       WHERE
         z.bottom_price IS NOT NULL
         AND z.is_broken = False
-        AND st.id = 4
+        AND st.id = ${timeframeId}
         ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
       ORDER BY s.symbol, z.bottom_price DESC
       LIMIT $2`;
