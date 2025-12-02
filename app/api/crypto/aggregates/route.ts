@@ -3,28 +3,19 @@ import pkg from 'pg';
 const { Pool } = pkg;
 
 
-/*
-1d: 23
-2m: 2
-3m: 3
-5d: N/A
-5m: 4
-6m: 5
-10m: 6
-13m: 7
-15m: 8
-22d: N/A
-26m: 9
-30m: 10
-39m: 11
-65d: N/A  
-65m: 12
-78m: 13
-130m: 14
-195m: 15
-390m: 17
-
-*/
+const timeframeMap = {
+  "5m": 1,
+  "15m": 2,
+  "30m": 3,
+  "1h": 4,
+  "2h": 6,
+  "4h": 9,
+  "8h": 11,
+  "1d": 12,
+  "7d": 13,
+  "31d": 14,
+  "93d": 15
+};
 
 
 // Load environment variables from .env.local
@@ -48,28 +39,21 @@ const pool = new Pool({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbols = searchParams.get('symbols')?.split(',') || [];
-  const limit = parseInt(searchParams.get('limit') || '50');
+  const limit = parseInt(searchParams.get('limit') || '8640');
+  const timeframe = searchParams.get('timeframe') || '5m';
+  const hours = parseInt(searchParams.get('hours') || '720');
+
+  // Validate timeframe to prevent SQL injection
+  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d'];
+  if (!validTimeframes.includes(timeframe)) {
+    return NextResponse.json(
+      { success: false, error: 'Invalid timeframe' },
+      { status: 400 }
+    );
+  }
 
   try {
     // Query crypto aggregates from crypto schema
-
-    // const query = `
-    // SELECT
-    // s.symbol,
-    // s.name AS company_name,
-    // mv.bucket,
-    // mv.open,
-    // mv.high,
-    // mv.low,
-    // mv.close,
-    // mv.volume
-    // FROM crypto.candles_5m mv
-    // JOIN crypto.symbols s ON mv.symbol_id = s.id
-    // WHERE 
-    //   ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-    //   AND mv.bucket >= NOW() - INTERVAL '120 hours'
-    // ORDER BY mv.bucket DESC
-    // LIMIT $2`;
 
     const query = `
       SELECT
@@ -81,11 +65,11 @@ export async function GET(request: Request) {
         mv.low,
         mv.close,
         mv.volume
-      FROM crypto.candles_5m mv
+      FROM crypto.candles_${timeframe} mv
       JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
         ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        mv.bucket >= NOW() - INTERVAL '144 hours'
+        mv.bucket >= NOW() - INTERVAL '${hours} hours'
       ORDER BY mv.bucket DESC
       LIMIT $2
     `;

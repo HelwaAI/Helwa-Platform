@@ -317,10 +317,15 @@ export default function CryptoDashboardPage() {
   const drawingToolbarRef = useRef<HTMLDivElement>(null);
   const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
-
+  const [timeframe, setTimeframe] = useState("5m");
+  const [limit, setLimit] = useState(8640);
+  const [hours, setHours] = useState(144);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  
+  console.log("Timeframe: ", timeframe);
+  console.log("Limit: ", limit);
+  console.log("Hours: ", hours);
+
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
     fetch('/.auth/me')
@@ -355,11 +360,11 @@ export default function CryptoDashboardPage() {
       setError(null);
 
       // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=50000`);
+      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100`);
+      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
       const zonesDataResponse = await zonesResponse.json();
 
 
@@ -404,7 +409,52 @@ export default function CryptoDashboardPage() {
   const handleInputChange = (value: string) => {
     setSearchQuery(value);
   };
-
+   // Handle timeframe change
+  const handleTimeframeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+     const selected = e.target.value;
+     const timeframeMap: Record<string, string> = {
+        "5min": "5m",
+        "15min": "15m",
+       "30min": "30m",
+        "1h": "1h",
+        "2h": "2h",
+       "4h": "4h",
+        "8h": "8h",
+       "daily": "1d",
+        "7d": "7d",
+       "31d": "31d",
+       "93d": "93d"
+      };
+      const limitMap: Record<string, number> = {
+        "5min": 8640,
+        "15min": 5760,
+        "30min": 4320,
+        "1h": 2160,
+        "2h": 1080,
+        "4h": 1080,
+        "8h": 1095,
+        "daily": 1095,
+        "7d": 104,
+        "31d": 35,
+        "93d": 19
+      };
+      const hoursMap: Record<string, number> = {
+        "5min": 720,
+        "15min": 1440,
+        "30min": 2160,
+        "1h": 2160,
+        "2h": 2160,
+        "4h": 4320,
+        "8h": 8760,
+        "daily": 26280,
+        "7d": 17520,
+        "31d": 26280,
+        "93d": 43800
+      };
+      setTimeframe(timeframeMap[selected] || selected);
+      setLimit(limitMap[selected] || 8640);
+      setHours(hoursMap[selected] || 720);
+  };
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
     console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
@@ -711,13 +761,21 @@ export default function CryptoDashboardPage() {
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
-                  <select className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary">
-                    <option>1m</option>
-                    <option>5m</option>
-                    <option>15m</option>
+                  <select
+                    className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
+                    onChange={handleTimeframeChange}
+                     defaultValue="5min"
+                  >                    <option>5min</option>
+                    <option>15min</option>
+                    <option>30min</option>
                     <option>1h</option>
+                    <option>2h</option>
                     <option>4h</option>
-                    <option>1d</option>
+                    <option>8h</option>
+                    <option>daily</option>
+                    <option>7d</option>
+                    <option>31d</option>
+                    <option>93d</option>
                   </select>
                   <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
