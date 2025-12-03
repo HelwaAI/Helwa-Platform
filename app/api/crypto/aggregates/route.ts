@@ -3,19 +3,7 @@ import pkg from 'pg';
 const { Pool } = pkg;
 
 
-const timeframeMap = {
-  "5m": 1,
-  "15m": 2,
-  "30m": 3,
-  "1h": 4,
-  "2h": 6,
-  "4h": 9,
-  "8h": 11,
-  "1d": 12,
-  "7d": 13,
-  "31d": 14,
-  "93d": 15
-};
+
 
 
 // Load environment variables from .env.local
