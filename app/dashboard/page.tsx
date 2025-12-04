@@ -3,10 +3,276 @@
 import {
   BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
-  MessageSquare, Send, X, Search
+  MessageSquare, Send, X, Search, Coins
 } from "lucide-react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createChart, CandlestickSeries, MouseEventParams, ISeriesApi, SeriesType, Time, IChartApi } from "lightweight-charts";
+import { RectangleDrawingTool } from "../../rectangle-drawing-tool";
+
+// ============================================================================
+// Zone Primitive Classes - Using lightweight-charts primitive plugin system
+// These classes render zones that automatically update on zoom/pan
+// ============================================================================
+
+interface ZonePoint {
+  time: Time;
+  price: number;
+}
+
+interface ZonePrimitiveOptions {
+  fillColor: string;
+  borderColor: string;
+  showLabel: boolean;
+  labelText: string;
+}
+
+// Renderer that draws the zone rectangle
+class ZonePaneRenderer {
+  private _p1: { x: number | null; y: number | null };
+  private _p2: { x: number | null; y: number | null };
+  private _options: ZonePrimitiveOptions;
+
+  constructor(
+    p1: { x: number | null; y: number | null },
+    p2: { x: number | null; y: number | null },
+    options: ZonePrimitiveOptions
+  ) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._options = options;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      if (
+        this._p1.x === null ||
+        this._p1.y === null ||
+        this._p2.x === null ||
+        this._p2.y === null
+      ) return;
+
+      const ctx = scope.context;
+      const x1 = Math.round(this._p1.x * scope.horizontalPixelRatio);
+      const y1 = Math.round(this._p1.y * scope.verticalPixelRatio);
+      const x2 = Math.round(this._p2.x * scope.horizontalPixelRatio);
+      const y2 = Math.round(this._p2.y * scope.verticalPixelRatio);
+
+      const left = Math.min(x1, x2);
+      const top = Math.min(y1, y2);
+      const width = Math.abs(x2 - x1);
+      const height = Math.abs(y2 - y1);
+
+      // Fill
+      ctx.fillStyle = this._options.fillColor;
+      ctx.fillRect(left, top, width, height);
+
+      // Border
+      ctx.strokeStyle = this._options.borderColor;
+      ctx.lineWidth = 1 * scope.horizontalPixelRatio;
+      ctx.strokeRect(left, top, width, height);
+
+      // Left border (thicker)
+      ctx.lineWidth = 2 * scope.horizontalPixelRatio;
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(left, top + height);
+      ctx.stroke();
+
+      // Label
+      if (this._options.showLabel && width > 50 * scope.horizontalPixelRatio) {
+        ctx.fillStyle = this._options.borderColor;
+        ctx.font = `${11 * scope.verticalPixelRatio}px sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          this._options.labelText,
+          left + 8 * scope.horizontalPixelRatio,
+          top + height / 2
+        );
+      }
+    });
+  }
+}
+
+// Pane view that manages coordinate conversion and creates renderer
+class ZonePaneView {
+  private _source: ZonePrimitive;
+  private _p1: { x: number | null; y: number | null } = { x: null, y: null };
+  private _p2: { x: number | null; y: number | null } = { x: null, y: null };
+
+  constructor(source: ZonePrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    const series = this._source.series;
+    const chart = this._source.chart;
+    if (!series || !chart) return;
+
+    const timeScale = chart.timeScale();
+
+    // Convert data coordinates (time, price) to pixel coordinates
+    this._p1 = {
+      x: timeScale.timeToCoordinate(this._source.p1.time),
+      y: series.priceToCoordinate(this._source.p1.price)
+    };
+    this._p2 = {
+      x: timeScale.timeToCoordinate(this._source.p2.time),
+      y: series.priceToCoordinate(this._source.p2.price)
+    };
+  }
+
+  renderer() {
+    return new ZonePaneRenderer(this._p1, this._p2, this._source.options);
+  }
+}
+
+// The main primitive class that gets attached to the series
+class ZonePrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: ZonePaneView[];
+  private _p1: ZonePoint;
+  private _p2: ZonePoint;
+  private _options: ZonePrimitiveOptions;
+  private _requestUpdate?: () => void;
+
+  constructor(p1: ZonePoint, p2: ZonePoint, options: ZonePrimitiveOptions) {
+    this._p1 = p1;
+    this._p2 = p2;
+    this._options = options;
+    this._paneViews = [new ZonePaneView(this)];
+  }
+
+  // Called by lightweight-charts when the primitive is attached
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  // Called by lightweight-charts when the primitive is detached
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  // Getters for the pane view to access
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get p1() { return this._p1; }
+  get p2() { return this._p2; }
+  get options() { return this._options; }
+
+  // Called by lightweight-charts to get pane views for rendering
+  paneViews() {
+    return this._paneViews;
+  }
+
+  // Called by lightweight-charts before rendering - we update coordinates here
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  // Request a re-render
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
+// Extended RectangleDrawingTool with snapping functionality
+// ============================================================================
+
+class SnappingRectangleDrawingTool extends RectangleDrawingTool {
+  private candleData: Array<{ time: number; open: number; high: number; low: number; close: number }>;
+  private originalClickHandler: any;
+  private snappingClickHandler: any;
+
+  constructor(
+    chart: any,
+    series: ISeriesApi<SeriesType>,
+    drawingsToolbarContainer: HTMLDivElement,
+    options: any,
+    candleData: Array<{ time: number; open: number; high: number; low: number; close: number }>
+  ) {
+    super(chart, series, drawingsToolbarContainer, options);
+    this.candleData = candleData;
+    this.originalClickHandler = (this as any)._clickHandler;
+    this.setupSnapping();
+  }
+
+  // Setup snapping by replacing the click handler
+  private setupSnapping() {
+    const chart = (this as any)._chart;
+    const series = (this as any)._series;
+
+    // Create new snapping click handler
+    this.snappingClickHandler = (param: MouseEventParams) => {
+      if (!(this as any)._drawing || !param.point || !param.time || !series) {
+        return this.originalClickHandler.call(this, param);
+      }
+
+      const rawPrice = series.coordinateToPrice(param.point.y);
+      if (rawPrice === null) {
+        return this.originalClickHandler.call(this, param);
+      }
+
+      // Find nearest candle by time
+      const clickTime = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+      let nearestCandle = this.candleData[0];
+      let minTimeDiff = Math.abs(clickTime - nearestCandle.time);
+
+      for (const candle of this.candleData) {
+        const timeDiff = Math.abs(clickTime - candle.time);
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          nearestCandle = candle;
+        }
+      }
+
+      // Snap to nearest high or low
+      const distToHigh = Math.abs(rawPrice - nearestCandle.high);
+      const distToLow = Math.abs(rawPrice - nearestCandle.low);
+      const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
+
+      // Log snapping for debugging
+      // console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+
+      // Create modified param with snapped price
+      const snappedY = series.priceToCoordinate(snappedPrice);
+      const modifiedParam = {
+        ...param,
+        point: snappedY !== null ? { ...param.point, y: snappedY } : param.point,
+      };
+
+      return this.originalClickHandler.call(this, modifiedParam);
+    };
+
+    // Unsubscribe original handler and subscribe with snapping handler
+    chart.unsubscribeClick(this.originalClickHandler);
+    chart.subscribeClick(this.snappingClickHandler);
+
+    // Update the internal reference
+    (this as any)._clickHandler = this.snappingClickHandler;
+  }
+
+  // Override remove to properly cleanup
+  remove() {
+    const chart = (this as any)._chart;
+    if (chart && this.snappingClickHandler) {
+      chart.unsubscribeClick(this.snappingClickHandler);
+    }
+    super.remove();
+  }
+}
+
+// ============================================================================
+// Component Interfaces
+// ============================================================================
 
 interface UserInfo {
   name: string;
@@ -14,34 +280,318 @@ interface UserInfo {
   role: "free" | "paid" | "admin";
 }
 
+interface StockAggregate {
+  symbol: string;
+  company_name: string;
+  latest_price: number;
+  change: number;
+  change_percent: number;
+  volume_24h: number;
+  high_24h: number;
+  low_24h: number;
+  bars: Array<{
+    bucket: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }>;
+  last_updated: string;
+}
+
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "free" });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [stockData, setStockData] = useState<StockAggregate | null>(null);
+  const [zonesData, setZonesData] = useState<any>(null);
+  const [fetching, setFetching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const drawingToolbarRef = useRef<HTMLDivElement>(null);
+  const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
+  const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
+  const [timeframe, setTimeframe] = useState("5m");
+  const [limit, setLimit] = useState(8640);
+  const [hours, setHours] = useState(720);
 
-  // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
-  // Uncomment lines 22-39 below to restore Azure Easy Auth
-  /*
-  useEffect(() => {
-    // Fetch user info from Azure Easy Auth
-    fetch('/.auth/me')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data[0]) {
-          const claims = data[0].user_claims || [];
-          const name = claims.find((c: any) => c.typ === 'name')?.val || 'User';
-          const email = claims.find((c: any) => c.typ.includes('emailaddress'))?.val || 'user@example.com';
-          // For now, everyone is "free" - we'll add role detection later
-          setUser({ name, email, role: "free" });
+  // useEffect(() => {
+  //   // Fetch user info from Azure Easy Auth
+  //   fetch('/.auth/me')
+  //     .then(res => res.json())
+  //     .then(data => {
+  //       if (data && data[0]) {
+  //         const claims = data[0].user_claims || [];
+  //         const name = claims.find((c: any) => c.typ === 'name')?.val || 'User';
+  //         const email = claims.find((c: any) => c.typ.includes('emailaddress'))?.val || 'user@example.com';
+  //         // For now, everyone is "free" - we'll add role detection later
+  //         setUser({ name, email, role: "free" });
+  //       }
+  //       setLoading(false);
+  //     })
+  //     .catch(() => {
+  //       setLoading(false);
+  //     });
+  // }, []);
+
+  // Fetch stock data based on symbol
+  const fetchStockData = async (symbol: string) => {
+    if (!symbol.trim()) {
+      setStockData(null);
+      setZonesData(null);
+      setError(null);
+      return;
+    }
+
+    try {
+      setFetching(true);
+      setError(null);
+
+      // Fetch aggregates data
+      const aggregatesResponse = await fetch(`/api/stock/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
+      const aggregatesData = await aggregatesResponse.json();
+
+      // Fetch zones data
+      const zonesResponse = await fetch(`/api/stock/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
+      const zonesDataResponse = await zonesResponse.json();
+
+      if (aggregatesData.success && aggregatesData.data.length > 0) {
+        setStockData(aggregatesData.data[0]);
+        console.log("Stock Data: ", aggregatesData.data[0])
+
+        // Set zones data if available
+        if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
+          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          setZonesData(zonesDataResponse.data[0]);
+        } else {
+          setZonesData(null);
         }
-        setLoading(false);
-      })
-      .catch(() => {
-        setLoading(false);
+      } else {
+        setError(`No data found for ${symbol}`);
+        setStockData(null);
+        setZonesData(null);
+      }
+    } catch (err: any) {
+      setError(`Error fetching data: ${err.message}`);
+      setStockData(null);
+      setZonesData(null);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // Handle search when Enter key is pressed
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      if (searchQuery.trim()) {
+        fetchStockData(searchQuery);
+      } else {
+        setStockData(null);
+        setError(null);
+      }
+    }
+  };
+
+  // Handle search input change (just update state)
+  const handleInputChange = (value: string) => {
+    setSearchQuery(value);
+  };
+
+  // Handle timeframe change
+  const handleTimeframeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = e.target.value;
+    const timeframeMap: Record<string, string> = {
+      "5min": "5m",
+      "15min": "15m",
+      "30min": "30m",
+      "1h": "1h",
+      "2h": "2h",
+      "4h": "4h",
+      "8h": "8h",
+      "daily": "1d",
+      "7d": "7d",
+      "31d": "31d",
+      "93d": "93d"
+    };
+    const limitMap: Record<string, number> = {
+      "5min": 8640,
+      "15min": 5760,
+      "30min": 4320,
+      "1h": 2160,
+      "2h": 1080,
+      "4h": 1080,
+      "8h": 1095,
+      "daily": 1095,
+      "7d": 104,
+      "31d": 35,
+      "93d": 19
+    };
+    const hoursMap: Record<string, number> = {
+      "5min": 720,
+      "15min": 1440,
+      "30min": 2160,
+      "1h": 2160,
+      "2h": 2160,
+      "4h": 4320,
+      "8h": 8760,
+      "daily": 26280,
+      "7d": 17520,
+      "31d": 26280,
+      "93d": 43800
+    };
+    setTimeframe(timeframeMap[selected] || selected);
+    setLimit(limitMap[selected] || 8640);
+    setHours(hoursMap[selected] || 720);
+  };
+
+  // Initialize candlestick chart when stockData changes
+  useEffect(() => {
+    if (!stockData || !chartContainerRef.current) return;
+
+    try {
+      // Create chart
+      const chart = createChart(chartContainerRef.current, {
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
       });
-  }, []);
-  */
+
+      // Add candlestick series
+      const candlestickSeries = chart.addSeries(CandlestickSeries, {
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderUpColor: '#26a69a',
+        borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+      });
+
+      // Convert bars data to candlestick format
+      const candleData = stockData.bars
+        .map((bar) => {
+          // Convert bucket timestamp to Unix timestamp in seconds
+          const time = Math.floor(new Date(bar.bucket).getTime() / 1000);
+          return {
+            time,
+            open: Number(bar.open),
+            high: Number(bar.high),
+            low: Number(bar.low),
+            close: Number(bar.close),
+          };
+        })
+        // Filter out any invalid timestamps (NaN values)
+        .filter((candle) => !isNaN(candle.time))
+        // Sort by time in ascending order (required by lightweight-charts)
+        .sort((a, b) => a.time - b.time);
+
+      if (candleData.length === 0) {
+        console.error('No valid candle data to render');
+        return;
+      }
+
+      // Set data on the series
+      candlestickSeries.setData(candleData as any);
+
+      // Fit content to view
+      chart.timeScale().fitContent();
+
+      // Clean up existing zone primitives
+      zonePrimitivesRef.current.forEach(primitive => {
+        candlestickSeries.detachPrimitive(primitive);
+      });
+      zonePrimitivesRef.current = [];
+
+      // Create zone primitives using lightweight-charts primitive system
+      if (zonesData && zonesData.zones && candleData.length > 0) {
+        zonesData.zones.forEach((zone: any) => {
+          try {
+            const isDemand = zone.zone_type.toLowerCase() === 'demand';
+            const topPrice = parseFloat(zone.top_price);
+            const bottomPrice = parseFloat(zone.bottom_price);
+
+            // Convert start_time to Unix timestamp in seconds
+            const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
+
+            // Determine zone end time by checking for breaks in candle data
+            const lastCandle = candleData[candleData.length - 1];
+            let zoneEndTime: number = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+            let isBroken = false;
+
+            // Find candles after zone start
+            const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+
+            // Check each candle to see if it breaks the zone
+            for (const candle of candlesAfterZone) {
+              if (isDemand) {
+                // Demand zone broken if CLOSE is below bottom price
+                if (candle.close < bottomPrice) {
+                  zoneEndTime = candle.time;
+                  isBroken = true;
+                  break;
+                }
+              } else {
+                // Supply zone broken if CLOSE is above top price
+                if (candle.close > topPrice) {
+                  zoneEndTime = candle.time;
+                  isBroken = true;
+                  break;
+                }
+              }
+            }
+
+            // Colors for demand (green) and supply (red) zones
+            const fillColor = isDemand ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 82, 82, 0.3)';
+            const borderColor = isDemand ? '#4CAF50' : '#FF5252';
+
+            // Create zone primitive with start and end points
+            const zonePrimitive = new ZonePrimitive(
+              { time: zoneStartTime as Time, price: topPrice },
+              { time: zoneEndTime as Time, price: bottomPrice },
+              {
+                fillColor,
+                borderColor,
+                showLabel: true,
+                labelText: `Zone ${zone.zone_id}${isBroken ? ' [BROKEN]' : ''}`
+              }
+            );
+
+            // Attach primitive to the series
+            candlestickSeries.attachPrimitive(zonePrimitive);
+            zonePrimitivesRef.current.push(zonePrimitive);
+          } catch (err) {
+            console.error(`Error creating zone primitive:`, err);
+          }
+        });
+      }
+
+      // Handle window resize
+      const handleResize = () => {
+        if (chartContainerRef.current) {
+          chart.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight,
+          });
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+
+        // Clean up zone primitives
+        zonePrimitivesRef.current.forEach(primitive => {
+          candlestickSeries.detachPrimitive(primitive);
+        });
+        zonePrimitivesRef.current = [];
+
+        chart.remove();
+      };
+    } catch (err) {
+      console.error('Error initializing chart:', err);
+    }
+  }, [stockData, zonesData]);
 
   const isLocked = user.role === "free";
 
@@ -51,7 +601,7 @@ export default function DashboardPage() {
       <aside className="w-16 bg-panel border-r border-border/30 flex flex-col items-center py-4 gap-2">
         {/* Logo */}
         <Link href="/" className="w-10 h-10 bg-gradient-to-br from-accent to-accent-dark rounded flex items-center justify-center mb-4">
-          <Activity className="h-5 w-5 text-white" />
+          <Coins className="h-5 w-5 text-white" />
         </Link>
 
         {/* Nav icons */}
@@ -94,10 +644,21 @@ export default function DashboardPage() {
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-success animate-pulse"></div>
-              <span className="text-sm font-medium text-primary">BTC/USD</span>
-              <span className="text-lg font-bold text-success">$43,521.00</span>
-              <span className="text-sm text-success">+2.4%</span>
+              <span className="text-sm font-medium text-primary">
+                {stockData?.symbol || 'Select Stock'}
+              </span>
+              <span className="text-lg font-bold text-success">
+                ${stockData ? Number(stockData.latest_price).toFixed(2) : '0.00'}
+              </span>
+              <span className={`text-sm ${stockData && stockData.change_percent >= 0 ? 'text-success' : 'text-red-500'}`}>
+                {stockData ? `${stockData.change_percent >= 0 ? '+' : ''}${Number(stockData.change_percent).toFixed(2)}%` : '0.00%'}
+              </span>
             </div>
+            {error && (
+              <div className="text-xs text-red-500 ml-4">
+                {error}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -138,19 +699,30 @@ export default function DashboardPage() {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
                     <input
                       type="text"
-                      placeholder="Search..."
+                      placeholder="Search stock (e.g., AAPL, TSLA)... Press Enter"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent"
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      onKeyDown={handleSearchKeyPress}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
-                  <select className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary">
-                    <option>1m</option>
-                    <option>5m</option>
-                    <option>15m</option>
+                  <select
+                    className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
+                    onChange={handleTimeframeChange}
+                    defaultValue="5min"
+                  >
+                    <option>5min</option>
+                    <option>15min</option>
+                    <option>30min</option>
                     <option>1h</option>
+                    <option>2h</option>
                     <option>4h</option>
-                    <option>1d</option>
+                    <option>8h</option>
+                    <option>daily</option>
+                    <option>7d</option>
+                    <option>31d</option>
+                    <option>93d</option>
                   </select>
                   <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
@@ -160,7 +732,7 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   <button className="p-1.5 hover:bg-elevated rounded transition-colors">
                     <BarChart3 className="h-4 w-4 text-secondary" />
                   </button>
@@ -172,30 +744,11 @@ export default function DashboardPage() {
 
               {/* Chart Content */}
               <div className="h-full p-6 relative">
-                {/* Simulated Chart */}
-                <svg className="w-full h-full opacity-40" viewBox="0 0 800 400">
-                  <defs>
-                    <linearGradient id="chartGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="rgb(245, 158, 11)" stopOpacity="0.4"/>
-                      <stop offset="100%" stopColor="rgb(245, 158, 11)" stopOpacity="0"/>
-                    </linearGradient>
-                  </defs>
-                  {/* Grid lines */}
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <line key={i} x1="0" y1={i * 80} x2="800" y2={i * 80} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-                  ))}
-                  {/* Price line */}
-                  <path
-                    d="M 0 300 Q 100 250, 200 280 T 400 200 T 600 160 T 800 120"
-                    stroke="rgb(245, 158, 11)"
-                    strokeWidth="2"
-                    fill="none"
-                  />
-                  <path
-                    d="M 0 300 Q 100 250, 200 280 T 400 200 T 600 160 T 800 120 L 800 400 L 0 400 Z"
-                    fill="url(#chartGrad)"
-                  />
-                </svg>
+                {/* Lightweight Charts Container */}
+                <div
+                  ref={chartContainerRef}
+                  className="w-full h-full"
+                />
 
                 {/* Lock Overlay for Free Users */}
                 {isLocked && (
@@ -208,7 +761,7 @@ export default function DashboardPage() {
                         Unlock Professional Charts
                       </h3>
                       <p className="text-secondary mb-6">
-                        Upgrade to Pro to access real-time charts, advanced indicators, and AI-powered insights.
+                        Upgrade to Pro to access real-time stock charts, advanced indicators, and AI-powered insights.
                       </p>
                       <Link
                         href="/#pricing"
@@ -229,20 +782,23 @@ export default function DashboardPage() {
 
             {/* Bottom Stats Grid */}
             <div className="grid grid-cols-4 gap-4">
-              {[
-                { label: 'Volume 24h', value: '$1.2M', change: '+12.4%', up: true },
-                { label: 'High 24h', value: '$43,800', change: '+2.1%', up: true },
-                { label: 'Low 24h', value: '$42,100', change: '-1.2%', up: false },
-                { label: 'Market Cap', value: '$821B', change: '+5.3%', up: true },
+              {stockData ? [
+                { label: 'Volume 24h', value: `${(Number(stockData.volume_24h) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
+                { label: 'High 24h', value: `$${Number(stockData.high_24h).toFixed(2)}`, change: `+${((Number(stockData.high_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.high_24h) > Number(stockData.latest_price) },
+                { label: 'Low 24h', value: `$${Number(stockData.low_24h).toFixed(2)}`, change: `${((Number(stockData.low_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.low_24h) < Number(stockData.latest_price) },
               ].map((stat, i) => (
                 <div key={i} className="bg-panel border border-border rounded-lg p-4">
                   <div className="text-xs text-secondary mb-1">{stat.label}</div>
                   <div className="text-lg font-bold text-primary mb-1">{stat.value}</div>
-                  <div className={`text-xs ${stat.up ? 'text-success' : 'text-red-500'}`}>
+                  <div className="text-xs text-secondary">
                     {stat.change}
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="col-span-4 text-center text-secondary py-8">
+                  Search for a stock symbol (e.g., AAPL, TSLA) to view statistics
+                </div>
+              )}
             </div>
           </div>
 
@@ -279,7 +835,7 @@ export default function DashboardPage() {
                     <Bot className="h-3 w-3 text-accent" />
                   </div>
                   <div className="bg-elevated rounded-lg p-3 text-sm text-primary max-w-[85%]">
-                    Hello! I'm your AI trading assistant. How can I help you today?
+                    Hey! I'm your stock trading assistant. What would you like to know about today's market?
                   </div>
                 </div>
 
@@ -293,7 +849,7 @@ export default function DashboardPage() {
                         </div>
                         <h4 className="text-lg font-bold mb-2 text-primary">AI Chat Locked</h4>
                         <p className="text-sm text-secondary mb-4">
-                          Upgrade to Pro to chat with our AI assistant
+                          Upgrade to Pro to chat with our AI assistant about stock markets
                         </p>
                         <Link
                           href="/#pricing"
@@ -313,7 +869,7 @@ export default function DashboardPage() {
                 <div className={`flex gap-2 ${isLocked ? 'opacity-40 pointer-events-none' : ''}`}>
                   <input
                     type="text"
-                    placeholder={isLocked ? "Upgrade to chat..." : "Ask me anything..."}
+                    placeholder={isLocked ? "Upgrade to chat..." : "Ask about stocks..."}
                     disabled={isLocked}
                     className="flex-1 bg-elevated border border-border rounded-lg px-3 py-2 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent"
                   />

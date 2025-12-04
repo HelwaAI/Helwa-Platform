@@ -24,28 +24,27 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbols = searchParams.get('symbols')?.split(',') || [];
   const limit = parseInt(searchParams.get('limit') || '50');
+  const timeframe = searchParams.get('timeframe') || '5m';
+  const hours = parseInt(searchParams.get('hours') || '720');
 
   try {
     // Query stock aggregates from stocks schema
     const query = `
       SELECT
-        s.symbol,
-        s.name as company_name,
-        ma.timestamp,
-        ma.open,
-        ma.high,
-        ma.low,
-        ma.close,
-        ma.volume,
-        ma.dollar_volume,
-        ma.vwap,
-        ma.trade_count
-      FROM stocks.minute_aggregates ma
-      JOIN stocks.symbols s ON ma.symbol_id = s.id
+        sc.symbol,
+        ss.company_name as company_name,
+        sc.bucket,
+        sc.open,
+        sc.high,
+        sc.low,
+        sc.close,
+        sc.volume
+      FROM stocks.candles_${timeframe} sc
+      JOIN stocks.symbols ss ON sc.symbol_id = ss.id
       WHERE
-        ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        ma.timestamp >= NOW() - INTERVAL '24 hours'
-      ORDER BY ma.timestamp DESC
+        ${symbols.length > 0 ? 'ss.symbol = ANY($1) AND' : ''}
+        AND sc.bucket >= NOW() - INTERVAL '${hours} hours'
+      ORDER BY sc.bucket DESC
       LIMIT $2
     `;
 

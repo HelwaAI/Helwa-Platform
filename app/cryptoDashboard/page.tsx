@@ -240,7 +240,7 @@ class SnappingRectangleDrawingTool extends RectangleDrawingTool {
       const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
 
       // Log snapping for debugging
-      console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+      // console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
 
       // Create modified param with snapped price
       const snappedY = series.priceToCoordinate(snappedPrice);
@@ -322,9 +322,9 @@ export default function CryptoDashboardPage() {
   const [hours, setHours] = useState(720);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  console.log("Timeframe: ", timeframe);
-  console.log("Limit: ", limit);
-  console.log("Hours: ", hours);
+  // console.log("Timeframe: ", timeframe);
+  // console.log("Limit: ", limit);
+  // console.log("Hours: ", hours);
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -374,7 +374,7 @@ export default function CryptoDashboardPage() {
       // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
           console.log("Crypto Data: ", aggregatesData.data[0])
-          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
           setZonesData(null);
@@ -457,7 +457,7 @@ export default function CryptoDashboardPage() {
   };
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
-    console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
+    // console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
     if (!cryptoData || !chartContainerRef.current) return;
 
     try {
@@ -495,7 +495,7 @@ export default function CryptoDashboardPage() {
         // Sort by time in ascending order (required by lightweight-charts)
         .sort((a, b) => a.time - b.time);
 
-      console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
+      // console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
       if (candleData.length === 0) {
         console.error('No valid candle data to render');
         return;
@@ -601,14 +601,14 @@ export default function CryptoDashboardPage() {
             candlestickSeries.attachPrimitive(zonePrimitive);
             zonePrimitivesRef.current.push(zonePrimitive);
 
-            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
-              type: zone.zone_type,
-              isBroken,
-              startTime: new Date(zoneStartTime * 1000).toISOString(),
-              endTime: new Date(zoneEndTime! * 1000).toISOString(),
-              topPrice,
-              bottomPrice
-            });
+            // console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+            //   type: zone.zone_type,
+            //   isBroken,
+            //   startTime: new Date(zoneStartTime * 1000).toISOString(),
+            //   endTime: new Date(zoneEndTime! * 1000).toISOString(),
+            //   topPrice,
+            //   bottomPrice
+            // });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
           }
