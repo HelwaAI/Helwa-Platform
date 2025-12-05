@@ -316,9 +316,9 @@ export default function DashboardPage() {
   const [timeframe, setTimeframe] = useState("2m");
   const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
-  // console.log("Timeframe: ", timeframe);
-  // console.log("Limit: ", limit);
-  // console.log("Hours: ", hours);
+  console.log("Timeframe: ", timeframe);
+  console.log("Limit: ", limit);
+  console.log("Hours: ", hours);
   // useEffect(() => {
   //   // Fetch user info from Azure Easy Auth
   //   fetch('/.auth/me')
@@ -361,11 +361,11 @@ export default function DashboardPage() {
 
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setStockData(aggregatesData.data[0]);
-        // console.log("Stock Data: ", aggregatesData.data[0])
+        console.log("Stock Data: ", aggregatesData.data[0])
 
         // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
-          // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
           setZonesData(null);
@@ -429,7 +429,7 @@ export default function DashboardPage() {
     const limitMap: Record<string, number> = {
       "2min": 5850,
       "3min": 3900,
-      "5min": 2340,
+      "5min": 2340,  
       "6min": 3900,
       "10min": 1755,
       "13min": 1800,
@@ -437,7 +437,7 @@ export default function DashboardPage() {
       "26min": 1350,
       "30min": 1170,
       "39min": 1800,
-      "65min": 1080,
+      "65min": 1080, 
       "78min": 900,
       "130min": 1095,
       "195min": 730,
@@ -448,25 +448,25 @@ export default function DashboardPage() {
       "65d": 85,
     };
     const hoursMap: Record<string, number> = {
-      "2min": 195,
-      "3min": 195,
-      "5min": 195,
-      "6min": 390,
-      "10min": 293,
-      "13min": 390,
-      "15min": 390,
-      "26min": 585,
-      "30min": 585,
-      "39min": 1170,
-      "65min": 1170,
-      "78min": 1170,
-      "130min": 2373,
-      "195min": 2373,
-      "390min": 7118,
-      "Daily": 7118,
-      "5d": 14235,
-      "22d": 35588,
-      "65d": 35588,
+      "2min": 720,
+      "3min": 720,
+      "5min": 720,  
+      "6min": 1440,
+      "10min": 1080,
+      "13min": 1440,
+      "15min": 1440,
+      "26min": 2160,
+      "30min": 2160,
+      "39min": 4320,
+      "65min": 4320, 
+      "78min": 4320,
+      "130min": 8760,
+      "195min": 8760,
+      "390min": 26280,
+      "Daily": 26280,
+      "5d": 52560,
+      "22d": 131400,
+      "65d": 131400,
     };
     setTimeframe(timeframeMap[selected] || selected);
     setLimit(limitMap[selected] || 5850);
@@ -478,10 +478,43 @@ export default function DashboardPage() {
     if (!stockData || !chartContainerRef.current) return;
 
     try {
-      // Create chart
+      // Create chart with time scale and crosshair configuration
       const chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
+        layout: {
+          background: { color: '#1A1410' }, // panel color
+          textColor: '#E8D5B5', // secondary color
+        },
+        grid: {
+          vertLines: { color: 'rgba(232, 213, 181, 0.1)' },
+          horzLines: { color: 'rgba(232, 213, 181, 0.1)' },
+        },
+        crosshair: {
+          mode: 1, // Normal crosshair mode (0 = Magnet, 1 = Normal)
+          vertLine: {
+            width: 1,
+            color: '#F59E0B', // accent color
+            style: 2, // Dashed line
+            labelBackgroundColor: '#F59E0B',
+          },
+          horzLine: {
+            width: 1,
+            color: '#F59E0B',
+            style: 2,
+            labelBackgroundColor: '#F59E0B',
+          },
+        },
+        timeScale: {
+          visible: true, // Show time scale
+          timeVisible: true, // Show time (not just date)
+          secondsVisible: false, // Don't show seconds for cleaner look
+          borderColor: 'rgba(232, 213, 181, 0.2)',
+        },
+        rightPriceScale: {
+          visible: true,
+          borderColor: 'rgba(232, 213, 181, 0.2)',
+        },
       });
 
       // Add candlestick series
@@ -718,7 +751,7 @@ export default function DashboardPage() {
           {/* Center: Chart Area */}
           <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
             {/* Chart Container */}
-            <div className="flex-1 bg-panel border border-border rounded-lg relative overflow-hidden min-h-[500px]">
+            <div className="flex-1 bg-panel border border-border rounded-lg relative min-h-[500px]">
               {/* Chart Header */}
               <div className="bg-elevated p-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -778,11 +811,12 @@ export default function DashboardPage() {
               </div>
 
               {/* Chart Content */}
-              <div className="h-full p-6 relative">
+              <div className="h-full p-4 relative">
                 {/* Lightweight Charts Container */}
                 <div
                   ref={chartContainerRef}
                   className="w-full h-full"
+                  style={{ minHeight: '400px' }}
                 />
 
                 {/* Lock Overlay for Free Users */}
