@@ -23,15 +23,25 @@ const pool = new Pool({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbols = searchParams.get('symbols')?.split(',') || [];
-  const limit = parseInt(searchParams.get('limit') || '50');
-  const timeframe = searchParams.get('timeframe') || '5m';
+  const limit = parseInt(searchParams.get('limit') || '5850');
+  const timeframe = searchParams.get('timeframe') || '2m';
   const hours = parseInt(searchParams.get('hours') || '720');
+  const validTimeframes = ['2m', '3m','5m', '6m',
+    '10m', '13m', '15m','26m',
+     '30m', '39m', '65m', '78m', '130m', '195m','390m', '1d', '5d', '22d', '65d'];
+  if (!validTimeframes.includes(timeframe)) {
+    return NextResponse.json(
+      { success: false, error: 'Invalid timeframe' },
+      { status: 400 }
+    );
+  }
+
 
   try {
     // Query stock aggregates from stocks schema
     const query = `
       SELECT
-        sc.symbol,
+        ss.symbol,
         ss.company_name as company_name,
         sc.bucket,
         sc.open,
@@ -43,7 +53,7 @@ export async function GET(request: Request) {
       JOIN stocks.symbols ss ON sc.symbol_id = ss.id
       WHERE
         ${symbols.length > 0 ? 'ss.symbol = ANY($1) AND' : ''}
-        AND sc.bucket >= NOW() - INTERVAL '${hours} hours'
+         sc.bucket >= NOW() - INTERVAL '${hours} hours'
       ORDER BY sc.bucket DESC
       LIMIT $2
     `;
@@ -75,10 +85,8 @@ export async function GET(request: Request) {
         change,
         change_percent: changePercent,
         volume_24h: data.reduce((sum, d) => sum + d.volume, 0),
-        dollar_volume_24h: data.reduce((sum, d) => sum + d.dollar_volume, 0),
         high_24h: Math.max(...data.map(d => d.high)),
         low_24h: Math.min(...data.map(d => d.low)),
-        vwap: latest.vwap,
         bars: data.reverse(), // Chronological order for charts
         last_updated: latest.timestamp,
       };

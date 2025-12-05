@@ -313,10 +313,12 @@ export default function DashboardPage() {
   const drawingToolbarRef = useRef<HTMLDivElement>(null);
   const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
-  const [timeframe, setTimeframe] = useState("5m");
-  const [limit, setLimit] = useState(8640);
+  const [timeframe, setTimeframe] = useState("2m");
+  const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
-
+  // console.log("Timeframe: ", timeframe);
+  // console.log("Limit: ", limit);
+  // console.log("Hours: ", hours);
   // useEffect(() => {
   //   // Fetch user info from Azure Easy Auth
   //   fetch('/.auth/me')
@@ -350,20 +352,20 @@ export default function DashboardPage() {
       setError(null);
 
       // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/stock/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
+      const aggregatesResponse = await fetch(`/api/stocks/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/stock/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
+      const zonesResponse = await fetch(`/api/stocks/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
       const zonesDataResponse = await zonesResponse.json();
 
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setStockData(aggregatesData.data[0]);
-        console.log("Stock Data: ", aggregatesData.data[0])
+        // console.log("Stock Data: ", aggregatesData.data[0])
 
         // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
-          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
           setZonesData(null);
@@ -403,46 +405,71 @@ export default function DashboardPage() {
   const handleTimeframeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selected = e.target.value;
     const timeframeMap: Record<string, string> = {
+      "2min": "2m",
+      "3min": "3m",
       "5min": "5m",
+      "6min": "6m",
+      "10min": "10m",
+      "13min": "13m",
       "15min": "15m",
+      "26min": "26m",
       "30min": "30m",
-      "1h": "1h",
-      "2h": "2h",
-      "4h": "4h",
-      "8h": "8h",
-      "daily": "1d",
-      "7d": "7d",
-      "31d": "31d",
-      "93d": "93d"
+      "39min": "39m",
+      "65min": "65m",
+      "78min": "78m",
+      "130min": "130m",
+      "195min": "195m",
+      "390min": "390m",
+      "Daily": "1d",
+      "5d": "5d",
+      "22d": "22d",
+      "65d": "65d",
+
     };
     const limitMap: Record<string, number> = {
-      "5min": 8640,
-      "15min": 5760,
-      "30min": 4320,
-      "1h": 2160,
-      "2h": 1080,
-      "4h": 1080,
-      "8h": 1095,
-      "daily": 1095,
-      "7d": 104,
-      "31d": 35,
-      "93d": 19
+      "2min": 5850,
+      "3min": 3900,
+      "5min": 2340,
+      "6min": 3900,
+      "10min": 1755,
+      "13min": 1800,
+      "15min": 1560,
+      "26min": 1350,
+      "30min": 1170,
+      "39min": 1800,
+      "65min": 1080,
+      "78min": 900,
+      "130min": 1095,
+      "195min": 730,
+      "390min": 1095,
+      "Daily": 1095,
+      "5d": 438,
+      "22d": 249,
+      "65d": 85,
     };
     const hoursMap: Record<string, number> = {
-      "5min": 720,
-      "15min": 1440,
-      "30min": 2160,
-      "1h": 2160,
-      "2h": 2160,
-      "4h": 4320,
-      "8h": 8760,
-      "daily": 26280,
-      "7d": 17520,
-      "31d": 26280,
-      "93d": 43800
+      "2min": 195,
+      "3min": 195,
+      "5min": 195,
+      "6min": 390,
+      "10min": 293,
+      "13min": 390,
+      "15min": 390,
+      "26min": 585,
+      "30min": 585,
+      "39min": 1170,
+      "65min": 1170,
+      "78min": 1170,
+      "130min": 2373,
+      "195min": 2373,
+      "390min": 7118,
+      "Daily": 7118,
+      "5d": 14235,
+      "22d": 35588,
+      "65d": 35588,
     };
     setTimeframe(timeframeMap[selected] || selected);
-    setLimit(limitMap[selected] || 8640);
+    setLimit(limitMap[selected] || 5850);
     setHours(hoursMap[selected] || 720);
   };
 
@@ -710,19 +737,27 @@ export default function DashboardPage() {
                   <select
                     className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
                     onChange={handleTimeframeChange}
-                    defaultValue="5min"
+                    defaultValue="2min"
                   >
+                    <option>2min</option>
+                    <option>3min</option>
                     <option>5min</option>
+                    <option>6min</option>
+                    <option>10min</option>
+                    <option>13min</option>
                     <option>15min</option>
+                    <option>26min</option>
                     <option>30min</option>
+                    <option>39min</option>
                     <option>1h</option>
-                    <option>2h</option>
-                    <option>4h</option>
-                    <option>8h</option>
-                    <option>daily</option>
-                    <option>7d</option>
-                    <option>31d</option>
-                    <option>93d</option>
+                    <option>65min</option>
+                    <option>78min</option>
+                    <option>130min</option>
+                    <option>195min</option>
+                    <option>Daily</option>
+                    <option>5d</option>
+                    <option>22d</option>
+                    <option>65d</option>
                   </select>
                   <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (

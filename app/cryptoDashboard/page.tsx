@@ -373,7 +373,7 @@ export default function CryptoDashboardPage() {
 
       // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
-          console.log("Crypto Data: ", aggregatesData.data[0])
+          // console.log("Crypto Data: ", aggregatesData.data[0])
           // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
