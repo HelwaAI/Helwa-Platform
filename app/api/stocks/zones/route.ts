@@ -4,17 +4,25 @@ const { Pool } = pkg;
 
 
 const timeframeMap = {
-  "5m": 1,
-  "15m": 2,
-  "30m": 3,
-  "1h": 4,
-  "2h": 6,
-  "4h": 9,
-  "8h": 11,
-  "1d": 12,
-  "7d": 13,
-  "31d": 14,
-  "93d": 15
+    "2m": 2,
+    "3m": 3,
+    "5m": 4,
+    "6m": 5,
+    "10m": 6,
+    "13m": 7,
+    "15m": 8,
+    "26m": 9,
+    "30m": 10,
+    "39m": 11,
+    "65m": 12,
+    "78m": 13,
+    "130m": 14,
+    "195m": 15,
+    "390m": 17,
+    "1d": 16,
+    "5d": 18,
+    "22d": 19,
+    "65d": 20,
 };
 
 // Load environment variables from .env.local
@@ -47,28 +55,29 @@ export async function GET(request: Request) {
     // Query zones by joining symbols table
 
     const query =`
-      SELECT
-        s.symbol,
-        s.name AS company_name,
-        z.zone_id AS zone_id,
-        z.zone_type,
-        z.created_at,
-        z.updated_at,
-        z.top_price,
-        z.bottom_price,
-        z.start_time,
-        z.end_time,
-        z.timeframe_id
-      FROM crypto.zones z
-      JOIN crypto.symbols s ON z.symbol_id = s.id
-      JOIN crypto.timeframes st ON z.timeframe_id = st.id
-      WHERE
-        z.bottom_price IS NOT NULL
-        AND z.is_broken = False
-        AND st.id = ${timeframeId}
-        ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
-      ORDER BY s.symbol, z.bottom_price DESC
-      LIMIT $2`;
+        SELECT
+            s.symbol,
+            s.company_name AS company_name,
+            z.zone_id AS zone_id,
+            z.zone_type,
+            z.created_at,
+            z.updated_at,
+            z.top_price,
+            z.bottom_price,
+            z.is_broken,
+            z.timeframe_id,
+            z.start_time,
+            z.end_time
+        FROM stocks.zones z
+        JOIN stocks.symbols s ON z.symbol_id = s.id
+        JOIN stocks.timeframes st ON z.timeframe_id = st.id
+        WHERE
+            z.bottom_price IS NOT NULL
+            AND z.is_broken = False
+            AND st.id = ${timeframeId}
+            ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
+        ORDER BY s.symbol, z.bottom_price DESC
+        LIMIT $2`;
 
     // Always pass symbols and limit in consistent order: $1 = symbols (or null), $2 = limit
     const limit = parseInt(searchParams.get('limit') || '100');

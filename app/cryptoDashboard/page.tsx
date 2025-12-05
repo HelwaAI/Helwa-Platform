@@ -240,7 +240,7 @@ class SnappingRectangleDrawingTool extends RectangleDrawingTool {
       const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
 
       // Log snapping for debugging
-      console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+      // console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
 
       // Create modified param with snapped price
       const snappedY = series.priceToCoordinate(snappedPrice);
@@ -319,12 +319,12 @@ export default function CryptoDashboardPage() {
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
   const [timeframe, setTimeframe] = useState("5m");
   const [limit, setLimit] = useState(8640);
-  const [hours, setHours] = useState(144);
+  const [hours, setHours] = useState(720);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  console.log("Timeframe: ", timeframe);
-  console.log("Limit: ", limit);
-  console.log("Hours: ", hours);
+  // console.log("Timeframe: ", timeframe);
+  // console.log("Limit: ", limit);
+  // console.log("Hours: ", hours);
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -373,8 +373,8 @@ export default function CryptoDashboardPage() {
 
       // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
-          console.log("Crypto Data: ", aggregatesData.data[0])
-          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          // console.log("Crypto Data: ", aggregatesData.data[0])
+          // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
           setZonesData(null);
@@ -457,7 +457,7 @@ export default function CryptoDashboardPage() {
   };
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
-    console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
+    // console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
     if (!cryptoData || !chartContainerRef.current) return;
 
     try {
@@ -495,7 +495,7 @@ export default function CryptoDashboardPage() {
         // Sort by time in ascending order (required by lightweight-charts)
         .sort((a, b) => a.time - b.time);
 
-      console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
+      // console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
       if (candleData.length === 0) {
         console.error('No valid candle data to render');
         return;
@@ -507,33 +507,33 @@ export default function CryptoDashboardPage() {
       // Fit content to view
       chart.timeScale().fitContent();
 
-      // Initialize Rectangle Drawing Tool with snapping
-      if (drawingToolbarRef.current) {
-        // Clean up existing drawing tool if any
-        if (drawingToolRef.current) {
-          drawingToolRef.current.remove();
-        }
+      // Initialize Rectangle Drawing Tool with snapping - COMMENTED OUT
+      // if (drawingToolbarRef.current) {
+      //   // Clean up existing drawing tool if any
+      //   if (drawingToolRef.current) {
+      //     drawingToolRef.current.remove();
+      //   }
 
-        // Create snapping drawing tool with supply/demand zone colors
-        drawingToolRef.current = new SnappingRectangleDrawingTool(
-          chart,
-          candlestickSeries as any,
-          drawingToolbarRef.current,
-          {
-            fillColor: 'rgba(255, 82, 82, 0.3)', // Supply zone (red)
-            previewFillColor: 'rgba(255, 82, 82, 0.15)',
-            labelColor: '#FF5252',
-            labelTextColor: 'white',
-            showLabels: true,
-            priceLabelFormatter: (price: number) => `$${price.toFixed(2)}`,
-            timeLabelFormatter: (time: any) => {
-              const date = new Date(time * 1000);
-              return date.toLocaleString();
-            },
-          },
-          candleData
-        );
-      }
+      //   // Create snapping drawing tool with supply/demand zone colors
+      //   drawingToolRef.current = new SnappingRectangleDrawingTool(
+      //     chart,
+      //     candlestickSeries as any,
+      //     drawingToolbarRef.current,
+      //     {
+      //       fillColor: 'rgba(255, 82, 82, 0.3)', // Supply zone (red)
+      //       previewFillColor: 'rgba(255, 82, 82, 0.15)',
+      //       labelColor: '#FF5252',
+      //       labelTextColor: 'white',
+      //       showLabels: true,
+      //       priceLabelFormatter: (price: number) => `$${price.toFixed(2)}`,
+      //       timeLabelFormatter: (time: any) => {
+      //         const date = new Date(time * 1000);
+      //         return date.toLocaleString();
+      //       },
+      //     },
+      //     candleData
+      //   );
+      // }
 
       // Clean up existing zone primitives
       zonePrimitivesRef.current.forEach(primitive => {
@@ -601,14 +601,14 @@ export default function CryptoDashboardPage() {
             candlestickSeries.attachPrimitive(zonePrimitive);
             zonePrimitivesRef.current.push(zonePrimitive);
 
-            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
-              type: zone.zone_type,
-              isBroken,
-              startTime: new Date(zoneStartTime * 1000).toISOString(),
-              endTime: new Date(zoneEndTime! * 1000).toISOString(),
-              topPrice,
-              bottomPrice
-            });
+            // console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+            //   type: zone.zone_type,
+            //   isBroken,
+            //   startTime: new Date(zoneStartTime * 1000).toISOString(),
+            //   endTime: new Date(zoneEndTime! * 1000).toISOString(),
+            //   topPrice,
+            //   bottomPrice
+            // });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
           }
@@ -635,11 +635,12 @@ export default function CryptoDashboardPage() {
           candlestickSeries.detachPrimitive(primitive);
         });
         zonePrimitivesRef.current = [];
-        
-        if (drawingToolRef.current) {
-          drawingToolRef.current.remove();
-          drawingToolRef.current = null;
-        }
+
+        // Drawing tool cleanup - COMMENTED OUT
+        // if (drawingToolRef.current) {
+        //   drawingToolRef.current.remove();
+        //   drawingToolRef.current = null;
+        // }
         chart.remove();
       };
     } catch (err) {
@@ -786,11 +787,11 @@ export default function CryptoDashboardPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 items-center">
-                  {/* Drawing Tools Toolbar */}
-                  <div
+                  {/* Drawing Tools Toolbar - COMMENTED OUT */}
+                  {/* <div
                     ref={drawingToolbarRef}
                     className="flex gap-1 items-center border-r border-border pr-2 mr-2"
-                  />
+                  /> */}
                   <button className="p-1.5 hover:bg-elevated rounded transition-colors">
                     <BarChart3 className="h-4 w-4 text-secondary" />
                   </button>
