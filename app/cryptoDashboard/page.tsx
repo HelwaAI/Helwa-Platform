@@ -788,7 +788,7 @@ export default function CryptoDashboardPage() {
           {/* Center: Chart Area */}
           <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
             {/* Chart Container */}
-            <div className="flex-1 bg-panel border border-border rounded-lg relative overflow-hidden min-h-[500px]">
+            <div className="flex-1 bg-panel border border-border rounded-lg relative min-h-[500px]">
               {/* Chart Header */}
               <div className="bg-elevated p-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-4">
