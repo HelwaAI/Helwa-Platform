@@ -376,7 +376,6 @@ export default function CryptoDashboardPage() {
 
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setCryptoData(aggregatesData.data[0]);
-
         // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
           console.log("Crypto Data: ", aggregatesData.data[0])
@@ -426,7 +425,7 @@ export default function CryptoDashboardPage() {
       "2h": "2h",
       "4h": "4h",
       "8h": "8h",
-      "daily": "1d",
+      "Daily": "1d",
       "7d": "7d",
       "31d": "31d",
       "93d": "93d"
@@ -439,7 +438,7 @@ export default function CryptoDashboardPage() {
       "2h": 1080,
       "4h": 1080,
       "8h": 1095,
-      "daily": 1095,
+      "Daily": 1095,
       "7d": 104,
       "31d": 35,
       "93d": 19
@@ -452,7 +451,7 @@ export default function CryptoDashboardPage() {
       "2h": 2160,
       "4h": 4320,
       "8h": 8760,
-      "daily": 87600,     // ~10 years for day-based timeframes
+      "Daily": 87600,     // ~10 years for day-based timeframes
       "7d": 87600,        // ~10 years
       "31d": 87600,       // ~10 years
       "93d": 87600        // ~10 years
@@ -785,12 +784,14 @@ export default function CryptoDashboardPage() {
 
         {/* Main Dashboard Grid */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Center: Chart Area */}
-          <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+          {/* Center: Chart and Stats Area */}
+          <div className="flex-1 flex flex-col">
             {/* Chart Container */}
-            <div className="flex-1 bg-panel border border-border rounded-lg relative min-h-[500px]">
+            <div className="flex-1 p-4 pb-2">
+              <div className="h-full bg-panel border border-border rounded-lg flex flex-col">
               {/* Chart Header */}
-              <div className="bg-elevated p-3 border-b border-border flex items-center justify-between">
+              <div className="bg-elevated p-3 border-b border-border flex items-center justify-between shrink-0" 
+              >
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
@@ -815,46 +816,44 @@ export default function CryptoDashboardPage() {
                     <option>2h</option>
                     <option>4h</option>
                     <option>8h</option>
-                    <option>daily</option>
+                    <option>Daily</option>
                     <option>7d</option>
                     <option>31d</option>
                     <option>93d</option>
                   </select>
-                  <div className="flex gap-1">
+                  {/* <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
                       <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
                         {type}
                       </button>
                     ))}
-                  </div>
+                  </div> */}
                 </div>
-                <div className="flex gap-2 items-center">
-                  {/* Drawing Tools Toolbar - COMMENTED OUT */}
-                  {/* <div
+                {/* <div className="flex gap-2 items-center">
+                  <div
                     ref={drawingToolbarRef}
                     className="flex gap-1 items-center border-r border-border pr-2 mr-2"
-                  /> */}
+                  />
                   <button className="p-1.5 hover:bg-elevated rounded transition-colors">
                     <BarChart3 className="h-4 w-4 text-secondary" />
                   </button>
                   <button className="p-1.5 hover:bg-elevated rounded transition-colors">
                     <Settings className="h-4 w-4 text-secondary" />
                   </button>
-                </div>
+                </div> */}
               </div>
 
               {/* Chart Content */}
-              <div className="h-full p-4 relative">
+              <div className="flex-1 p-4 relative min-h-0">
                 {/* Lightweight Charts Container */}
                 <div
                   ref={chartContainerRef}
                   className="w-full h-full"
-                  style={{ minHeight: '400px' }}
                 />
 
                 {/* Lock Overlay for Free Users */}
                 {isLocked && (
-                  <div className="absolute inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center">
+                  <div className="absolute inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center" >
                     <div className="text-center max-w-md p-8">
                       <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Lock className="h-8 w-8 text-accent" />
@@ -880,12 +879,14 @@ export default function CryptoDashboardPage() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
-            {/* Bottom Stats Grid */}
-            <div className="grid grid-cols-4 gap-4">
+            {/* Stats Container - Separate from Chart */}
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-10">
               {cryptoData ? [
-                { label: 'Volume 24h', value: `${(Number(cryptoData.volume_24h) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
+                { label: 'Volume 24h', value: `${((Number(cryptoData.volume_24h) || 0) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
                 { label: 'High 24h', value: `$${Number(cryptoData.high_24h).toFixed(2)}`, change: `+${((Number(cryptoData.high_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.high_24h) > Number(cryptoData.latest_price) },
                 { label: 'Low 24h', value: `$${Number(cryptoData.low_24h).toFixed(2)}`, change: `${((Number(cryptoData.low_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.low_24h) < Number(cryptoData.latest_price) },
               ].map((stat, i) => (
@@ -901,6 +902,7 @@ export default function CryptoDashboardPage() {
                   Search for a crypto symbol (e.g., BTC, ETH) to view statistics
                 </div>
               )}
+              </div>
             </div>
           </div>
 
