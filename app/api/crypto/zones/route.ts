@@ -64,7 +64,6 @@ export async function GET(request: Request) {
       JOIN crypto.timeframes st ON z.timeframe_id = st.id
       WHERE
         z.bottom_price IS NOT NULL
-        AND z.is_broken = False
         AND st.id = ${timeframeId}
         ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
       ORDER BY s.symbol, z.bottom_price DESC

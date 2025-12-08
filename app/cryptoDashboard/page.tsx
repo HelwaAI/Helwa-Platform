@@ -110,7 +110,7 @@ class ZonePaneView {
     if (!series || !chart) return;
 
     const timeScale = chart.timeScale();
-    
+
     // Convert data coordinates (time, price) to pixel coordinates
     this._p1 = {
       x: timeScale.timeToCoordinate(this._source.p1.time),
@@ -240,7 +240,7 @@ class SnappingRectangleDrawingTool extends RectangleDrawingTool {
       const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
 
       // Log snapping for debugging
-      // console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+      console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
 
       // Create modified param with snapped price
       const snappedY = series.priceToCoordinate(snappedPrice);
@@ -322,9 +322,9 @@ export default function CryptoDashboardPage() {
   const [hours, setHours] = useState(720);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
-  // console.log("Timeframe: ", timeframe);
-  // console.log("Limit: ", limit);
-  // console.log("Hours: ", hours);
+  console.log("Timeframe: ", timeframe);
+  console.log("Limit: ", limit);
+  console.log("Hours: ", hours);
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -344,7 +344,13 @@ export default function CryptoDashboardPage() {
         setLoading(false);
       });
   }, []);
-  
+
+  // Effect to refetch data when timeframe settings change
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      fetchCryptoData(searchQuery);
+    }
+  }, [timeframe, limit, hours]);
 
   // Fetch crypto data based on symbol
   const fetchCryptoData = async (symbol: string) => {
@@ -371,10 +377,10 @@ export default function CryptoDashboardPage() {
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setCryptoData(aggregatesData.data[0]);
 
-      // Set zones data if available
+        // Set zones data if available
         if (zonesDataResponse.success && zonesDataResponse.data.length > 0) {
-          // console.log("Crypto Data: ", aggregatesData.data[0])
-          // console.log("ZONES DATA: ", zonesDataResponse.data[0]);
+          console.log("Crypto Data: ", aggregatesData.data[0])
+          console.log("ZONES DATA: ", zonesDataResponse.data[0]);
           setZonesData(zonesDataResponse.data[0]);
         } else {
           setZonesData(null);
@@ -409,62 +415,97 @@ export default function CryptoDashboardPage() {
   const handleInputChange = (value: string) => {
     setSearchQuery(value);
   };
-   // Handle timeframe change
+  // Handle timeframe change
   const handleTimeframeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-     const selected = e.target.value;
-     const timeframeMap: Record<string, string> = {
-        "5min": "5m",
-        "15min": "15m",
-       "30min": "30m",
-        "1h": "1h",
-        "2h": "2h",
-       "4h": "4h",
-        "8h": "8h",
-       "daily": "1d",
-        "7d": "7d",
-       "31d": "31d",
-       "93d": "93d"
-      };
-      const limitMap: Record<string, number> = {
-        "5min": 8640,
-        "15min": 5760,
-        "30min": 4320,
-        "1h": 2160,
-        "2h": 1080,
-        "4h": 1080,
-        "8h": 1095,
-        "daily": 1095,
-        "7d": 104,
-        "31d": 35,
-        "93d": 19
-      };
-      const hoursMap: Record<string, number> = {
-        "5min": 720,
-        "15min": 1440,
-        "30min": 2160,
-        "1h": 2160,
-        "2h": 2160,
-        "4h": 4320,
-        "8h": 8760,
-        "daily": 26280,
-        "7d": 17520,
-        "31d": 26280,
-        "93d": 43800
-      };
-      setTimeframe(timeframeMap[selected] || selected);
-      setLimit(limitMap[selected] || 8640);
-      setHours(hoursMap[selected] || 720);
+    const selected = e.target.value;
+    const timeframeMap: Record<string, string> = {
+      "5min": "5m",
+      "15min": "15m",
+      "30min": "30m",
+      "1h": "1h",
+      "2h": "2h",
+      "4h": "4h",
+      "8h": "8h",
+      "daily": "1d",
+      "7d": "7d",
+      "31d": "31d",
+      "93d": "93d"
+    };
+    const limitMap: Record<string, number> = {
+      "5min": 8640,
+      "15min": 5760,
+      "30min": 4320,
+      "1h": 2160,
+      "2h": 1080,
+      "4h": 1080,
+      "8h": 1095,
+      "daily": 1095,
+      "7d": 104,
+      "31d": 35,
+      "93d": 19
+    };
+    const hoursMap: Record<string, number> = {
+      "5min": 720,
+      "15min": 1440,
+      "30min": 2160,
+      "1h": 2160,
+      "2h": 2160,
+      "4h": 4320,
+      "8h": 8760,
+      "daily": 87600,     // ~10 years for day-based timeframes
+      "7d": 87600,        // ~10 years
+      "31d": 87600,       // ~10 years
+      "93d": 87600        // ~10 years
+    };
+    setTimeframe(timeframeMap[selected] || selected);
+    setLimit(limitMap[selected] || 8640);
+    setHours(hoursMap[selected] || 720);
   };
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
-    // console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
+    console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
     if (!cryptoData || !chartContainerRef.current) return;
 
     try {
-      // Create chart
+      // Create chart with time scale and crosshair configuration
       const chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
+        layout: {
+          background: { color: '#1A1410' }, // panel color
+          textColor: '#E8D5B5', // secondary color
+        },
+        grid: {
+          vertLines: { color: 'rgba(232, 213, 181, 0.1)' },
+          horzLines: { color: 'rgba(232, 213, 181, 0.1)' },
+        },
+        crosshair: {
+          mode: 1, // Normal crosshair mode (0 = Magnet, 1 = Normal)
+          vertLine: {
+            width: 1,
+            color: '#F59E0B', // accent color
+            style: 2, // Dashed line
+            labelVisible: true, // Show date/time label on x-axis
+            labelBackgroundColor: '#F59E0B',
+          },
+          horzLine: {
+            width: 1,
+            color: '#F59E0B',
+            style: 2,
+            labelVisible: true, // Show price label on y-axis
+            labelBackgroundColor: '#F59E0B',
+          },
+        },
+        timeScale: {
+          visible: true, // Show time scale
+          timeVisible: true, // Show time (not just date)
+          secondsVisible: false, // Don't show seconds for cleaner look
+          borderColor: 'rgba(232, 213, 181, 0.2)',
+        },
+        rightPriceScale: {
+          visible: true,
+          borderColor: 'rgba(232, 213, 181, 0.2)',
+        },
       });
 
       // Add candlestick series
@@ -495,7 +536,7 @@ export default function CryptoDashboardPage() {
         // Sort by time in ascending order (required by lightweight-charts)
         .sort((a, b) => a.time - b.time);
 
-      // console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
+      console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
       if (candleData.length === 0) {
         console.error('No valid candle data to render');
         return;
@@ -562,18 +603,20 @@ export default function CryptoDashboardPage() {
             const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
 
             // Check each candle to see if it breaks the zone
-            // Zone is broken when price CLOSES beyond the zone (full penetration)
+            // Zone is broken when ANY of OHLC values achieve full penetration past the zone
             for (const candle of candlesAfterZone) {
               if (isDemand) {
-                // Demand zone broken if CLOSE is below bottom price
-                if (candle.close < bottomPrice) {
+                // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
+                if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                  candle.low < bottomPrice || candle.close < bottomPrice) {
                   zoneEndTime = candle.time;
                   isBroken = true;
                   break;
                 }
               } else {
-                // Supply zone broken if CLOSE is above top price
-                if (candle.close > topPrice) {
+                // Supply zone broken if ANY of OHLC is above top price (full penetration)
+                if (candle.open > topPrice || candle.high > topPrice ||
+                  candle.low > topPrice || candle.close > topPrice) {
                   zoneEndTime = candle.time;
                   isBroken = true;
                   break;
@@ -601,14 +644,14 @@ export default function CryptoDashboardPage() {
             candlestickSeries.attachPrimitive(zonePrimitive);
             zonePrimitivesRef.current.push(zonePrimitive);
 
-            // console.log(`Zone ${zone.zone_id} attached as primitive:`, {
-            //   type: zone.zone_type,
-            //   isBroken,
-            //   startTime: new Date(zoneStartTime * 1000).toISOString(),
-            //   endTime: new Date(zoneEndTime! * 1000).toISOString(),
-            //   topPrice,
-            //   bottomPrice
-            // });
+            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+              type: zone.zone_type,
+              isBroken,
+              startTime: new Date(zoneStartTime * 1000).toISOString(),
+              endTime: new Date(zoneEndTime! * 1000).toISOString(),
+              topPrice,
+              bottomPrice
+            });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
           }
@@ -629,7 +672,7 @@ export default function CryptoDashboardPage() {
 
       return () => {
         window.removeEventListener('resize', handleResize);
-        
+
         // Clean up zone primitives
         zonePrimitivesRef.current.forEach(primitive => {
           candlestickSeries.detachPrimitive(primitive);
@@ -670,11 +713,10 @@ export default function CryptoDashboardPage() {
         ].map((item, i) => (
           <button
             key={i}
-            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-              item.active
-                ? 'bg-accent/10 text-accent'
-                : 'text-secondary hover:bg-elevated hover:text-primary'
-            }`}
+            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${item.active
+              ? 'bg-accent/10 text-accent'
+              : 'text-secondary hover:bg-elevated hover:text-primary'
+              }`}
             title={item.label}
           >
             <item.icon className="h-5 w-5" />
@@ -765,7 +807,7 @@ export default function CryptoDashboardPage() {
                   <select
                     className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
                     onChange={handleTimeframeChange}
-                     defaultValue="5min"
+                    defaultValue="5min"
                   >                    <option>5min</option>
                     <option>15min</option>
                     <option>30min</option>
@@ -802,11 +844,12 @@ export default function CryptoDashboardPage() {
               </div>
 
               {/* Chart Content */}
-              <div className="h-full p-6 relative">
+              <div className="h-full p-4 relative">
                 {/* Lightweight Charts Container */}
                 <div
                   ref={chartContainerRef}
                   className="w-full h-full"
+                  style={{ minHeight: '400px' }}
                 />
 
                 {/* Lock Overlay for Free Users */}

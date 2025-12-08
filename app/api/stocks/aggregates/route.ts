@@ -26,9 +26,11 @@ export async function GET(request: Request) {
   const limit = parseInt(searchParams.get('limit') || '5850');
   const timeframe = searchParams.get('timeframe') || '2m';
   const hours = parseInt(searchParams.get('hours') || '720');
-  const validTimeframes = ['2m', '3m','5m', '6m',
-    '10m', '13m', '15m','26m',
-     '30m', '39m', '65m', '78m', '130m', '195m','390m', '1d', '5d', '22d', '65d'];
+  // Accept optional 'days' parameter for day-based timeframes (takes precedence over hours)
+  const days = searchParams.get('days') ? parseInt(searchParams.get('days')!) : null;
+  const validTimeframes = ['2m', '3m', '5m', '6m',
+    '10m', '13m', '15m', '26m',
+    '30m', '39m', '65m', '78m', '130m', '195m', '390m', '1d', '5d', '22d', '65d'];
   if (!validTimeframes.includes(timeframe)) {
     return NextResponse.json(
       { success: false, error: 'Invalid timeframe' },
@@ -36,6 +38,47 @@ export async function GET(request: Request) {
     );
   }
 
+
+  // Map timeframe param to DB view suffix
+  // All minute-based timeframes use 'm' suffix (2m, 5m, 65m, etc.)
+  // Day-based use 'd' suffix (1d, 5d, 22d, 65d)
+  const timeframeMap: Record<string, string> = {
+    '2m': '2m', '3m': '3m', '5m': '5m', '6m': '6m',
+    '10m': '10m', '13m': '13m', '15m': '15m', '26m': '26m',
+    '30m': '30m', '39m': '39m',
+    '65m': '65m', '78m': '78m', '130m': '130m', '195m': '195m', '390m': '390m',
+    '1d': '1d', '5d': '5d', '22d': '22d', '65d': '65d'
+  };
+
+  const dbTimeframe = timeframeMap[timeframe] || timeframe;
+
+  // Determine the appropriate interval clause
+  // For day-based timeframes (1d, 5d, 22d, 65d), use days parameter if provided
+  // Otherwise fall back to hours parameter with intelligent defaults
+  const isDayBasedTimeframe = ['1d', '5d', '22d', '65d'].includes(timeframe);
+  // Longer minute timeframes (65m+) need extended lookback periods (in days, not hours)
+  const isLongMinuteTimeframe = ['65m', '78m', '130m', '195m', '390m'].includes(timeframe);
+  let intervalClause: string;
+
+  if (days !== null) {
+    // Use days parameter directly for more precise control over lookback period
+    intervalClause = `${days} days`;
+  } else if (isDayBasedTimeframe) {
+    // For day-based timeframes, use a large default to ensure we get all historical data
+    // 9125 days = ~25 years - covers most stock histories
+    const daysFromHours = Math.ceil(hours / 24);
+    const defaultDays = 9125;
+    intervalClause = `${Math.max(daysFromHours, defaultDays)} days`;
+  } else if (isLongMinuteTimeframe) {
+    // For longer minute timeframes (65min+), convert hours to days for better precision
+    // These timeframes need ~3-5 years of data typically
+    const daysFromHours = Math.ceil(hours / 24);
+    const defaultDays = 1825; // ~5 years default for long minute timeframes
+    intervalClause = `${Math.max(daysFromHours, defaultDays)} days`;
+  } else {
+    // For short minute-based timeframes, use hours directly
+    intervalClause = `${hours} hours`;
+  }
 
   try {
     // Query stock aggregates from stocks schema
@@ -49,11 +92,11 @@ export async function GET(request: Request) {
         sc.low,
         sc.close,
         sc.volume
-      FROM stocks.candles_${timeframe} sc
+      FROM stocks.candles_${dbTimeframe} sc
       JOIN stocks.symbols ss ON sc.symbol_id = ss.id
       WHERE
         ${symbols.length > 0 ? 'ss.symbol = ANY($1) AND' : ''}
-         sc.bucket >= NOW() - INTERVAL '${hours} hours'
+         sc.bucket >= NOW() - INTERVAL '${intervalClause}'
       ORDER BY sc.bucket DESC
       LIMIT $2
     `;
