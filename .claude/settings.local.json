@@ -8,7 +8,15 @@
       "Bash(npm install --save-dev @types/lightweight-charts)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:tradingview.github.io)"
+      "WebFetch(domain:tradingview.github.io)",
+      "Bash(az postgres flexible-server execute:*)",
+      "Bash(set:*)",
+      "Bash(psql:*)",
+      "Bash(node check-db.js:*)",
+      "Bash(del /f \"C:\\Users\\zainh\\Documents\\HelwaPage\\check-db.js\")",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Dashboard improvements and zone breaking logic updates\n\n- Fix 65m-390m timeframes by correcting DB view naming (use ''m'' suffix not ''min'')\n- Add intelligent lookback periods for day-based and long minute timeframes\n- Update zone breaking logic to check ALL OHLC values for full penetration\n- Add instant refresh on timeframe change for crypto dashboard\n- Add honey-themed chart styling (grid, crosshair) to crypto dashboard\n- Enable crosshair labels (yellow date/time display) on both dashboards\n- Remove is_broken filter from zones API to show broken zones with proper end times\n- Fix 39m materialized view alignment to market hours (14:30-21:00 UTC)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

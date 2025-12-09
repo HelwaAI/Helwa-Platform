@@ -30,9 +30,11 @@ export async function GET(request: Request) {
   const limit = parseInt(searchParams.get('limit') || '8640');
   const timeframe = searchParams.get('timeframe') || '5m';
   const hours = parseInt(searchParams.get('hours') || '720');
+  // Accept optional 'days' parameter for day-based timeframes (takes precedence over hours)
+  const days = searchParams.get('days') ? parseInt(searchParams.get('days')!) : null;
 
   // Validate timeframe to prevent SQL injection
-  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d'];
+  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d', '65m', '130m', '195m', '390m'];
   if (!validTimeframes.includes(timeframe)) {
     return NextResponse.json(
       { success: false, error: 'Invalid timeframe' },
@@ -40,9 +42,24 @@ export async function GET(request: Request) {
     );
   }
 
+  // Determine the appropriate interval clause
+  // For day-based timeframes (1d, 7d, 31d, 93d), use days parameter if provided
+  const isDayBasedTimeframe = ['1d', '7d', '31d', '93d'].includes(timeframe);
+  let intervalClause: string;
+
+  if (days !== null) {
+    intervalClause = `${days} days`;
+  } else if (isDayBasedTimeframe) {
+    // For day-based timeframes, use a large default (3650 days = 10 years for crypto)
+    const daysFromHours = Math.ceil(hours / 24);
+    const defaultDays = 3650;
+    intervalClause = `${Math.max(daysFromHours, defaultDays)} days`;
+  } else {
+    intervalClause = `${hours} hours`;
+  }
+
   try {
     // Query crypto aggregates from crypto schema
-
     const query = `
       SELECT
         s.symbol,
@@ -57,7 +74,7 @@ export async function GET(request: Request) {
       JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
         ${symbols.length > 0 ? 's.symbol = ANY($1) AND' : ''}
-        mv.bucket >= NOW() - INTERVAL '${hours} hours'
+        mv.bucket >= NOW() - INTERVAL '${intervalClause}'
       ORDER BY mv.bucket DESC
       LIMIT $2
     `;

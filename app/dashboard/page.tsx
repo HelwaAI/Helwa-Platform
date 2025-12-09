@@ -302,7 +302,7 @@ interface StockAggregate {
 
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
-  const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "free" });
+  const [user, setUser] = useState<UserInfo>({ name: "User", email: "user-admin@helwa.ai", role: "admin" });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [stockData, setStockData] = useState<StockAggregate | null>(null);
@@ -319,24 +319,31 @@ export default function DashboardPage() {
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
-  // useEffect(() => {
-  //   // Fetch user info from Azure Easy Auth
-  //   fetch('/.auth/me')
-  //     .then(res => res.json())
-  //     .then(data => {
-  //       if (data && data[0]) {
-  //         const claims = data[0].user_claims || [];
-  //         const name = claims.find((c: any) => c.typ === 'name')?.val || 'User';
-  //         const email = claims.find((c: any) => c.typ.includes('emailaddress'))?.val || 'user@example.com';
-  //         // For now, everyone is "free" - we'll add role detection later
-  //         setUser({ name, email, role: "free" });
-  //       }
-  //       setLoading(false);
-  //     })
-  //     .catch(() => {
-  //       setLoading(false);
-  //     });
-  // }, []);
+  useEffect(() => {
+    // Fetch user info from Azure Easy Auth
+    fetch('/.auth/me')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data[0]) {
+          const claims = data[0].user_claims || [];
+          const name = claims.find((c: any) => c.typ === 'name')?.val || 'User';
+          const email = claims.find((c: any) => c.typ.includes('emailaddress'))?.val || 'user@example.com';
+          // For now, everyone is "free" - we'll add role detection later
+          setUser({ name, email, role: "free" });
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  // Effect to refetch data when timeframe settings change
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      fetchStockData(searchQuery);
+    }
+  }, [timeframe, limit, hours]);
 
   // Fetch stock data based on symbol
   const fetchStockData = async (symbol: string) => {
@@ -429,7 +436,7 @@ export default function DashboardPage() {
     const limitMap: Record<string, number> = {
       "2min": 5850,
       "3min": 3900,
-      "5min": 2340,  
+      "5min": 2340,
       "6min": 3900,
       "10min": 1755,
       "13min": 1800,
@@ -437,7 +444,7 @@ export default function DashboardPage() {
       "26min": 1350,
       "30min": 1170,
       "39min": 1800,
-      "65min": 1080, 
+      "65min": 1080,
       "78min": 900,
       "130min": 1095,
       "195min": 730,
@@ -450,7 +457,7 @@ export default function DashboardPage() {
     const hoursMap: Record<string, number> = {
       "2min": 720,
       "3min": 720,
-      "5min": 720,  
+      "5min": 720,
       "6min": 1440,
       "10min": 1080,
       "13min": 1440,
@@ -458,15 +465,15 @@ export default function DashboardPage() {
       "26min": 2160,
       "30min": 2160,
       "39min": 4320,
-      "65min": 4320, 
-      "78min": 4320,
-      "130min": 8760,
-      "195min": 8760,
-      "390min": 26280,
-      "Daily": 26280,
-      "5d": 52560,
-      "22d": 131400,
-      "65d": 131400,
+      "65min": 4320,     // ~5 years for longer minute timeframes
+      "78min": 4320,     // ~5 years
+      "130min": 43800,    // ~5 years
+      "195min": 43800,    // ~5 years
+      "390min": 43800,    // ~5 years
+      "Daily": 219000,    // ~25 years for day-based timeframes
+      "5d": 219000,       // ~25 years
+      "22d": 219000,      // ~25 years
+      "65d": 219000,      // ~25 years
     };
     setTimeframe(timeframeMap[selected] || selected);
     setLimit(limitMap[selected] || 5850);
@@ -496,12 +503,14 @@ export default function DashboardPage() {
             width: 1,
             color: '#F59E0B', // accent color
             style: 2, // Dashed line
+            labelVisible: true, // Show date/time label on x-axis
             labelBackgroundColor: '#F59E0B',
           },
           horzLine: {
             width: 1,
             color: '#F59E0B',
             style: 2,
+            labelVisible: true, // Show price label on y-axis
             labelBackgroundColor: '#F59E0B',
           },
         },
@@ -582,17 +591,20 @@ export default function DashboardPage() {
             const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
 
             // Check each candle to see if it breaks the zone
+            // Zone is broken when ANY of OHLC values achieve full penetration past the zone
             for (const candle of candlesAfterZone) {
               if (isDemand) {
-                // Demand zone broken if CLOSE is below bottom price
-                if (candle.close < bottomPrice) {
+                // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
+                if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                  candle.low < bottomPrice || candle.close < bottomPrice) {
                   zoneEndTime = candle.time;
                   isBroken = true;
                   break;
                 }
               } else {
-                // Supply zone broken if CLOSE is above top price
-                if (candle.close > topPrice) {
+                // Supply zone broken if ANY of OHLC is above top price (full penetration)
+                if (candle.open > topPrice || candle.high > topPrice ||
+                  candle.low > topPrice || candle.close > topPrice) {
                   zoneEndTime = candle.time;
                   isBroken = true;
                   break;
@@ -675,11 +687,10 @@ export default function DashboardPage() {
         ].map((item, i) => (
           <button
             key={i}
-            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
-              item.active
-                ? 'bg-accent/10 text-accent'
-                : 'text-secondary hover:bg-elevated hover:text-primary'
-            }`}
+            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${item.active
+              ? 'bg-accent/10 text-accent'
+              : 'text-secondary hover:bg-elevated hover:text-primary'
+              }`}
             title={item.label}
           >
             <item.icon className="h-5 w-5" />
@@ -782,11 +793,11 @@ export default function DashboardPage() {
                     <option>26min</option>
                     <option>30min</option>
                     <option>39min</option>
-                    <option>1h</option>
                     <option>65min</option>
                     <option>78min</option>
                     <option>130min</option>
                     <option>195min</option>
+                    <option>390min</option>
                     <option>Daily</option>
                     <option>5d</option>
                     <option>22d</option>

@@ -14,7 +14,11 @@ const timeframeMap = {
   "1d": 12,
   "7d": 13,
   "31d": 14,
-  "93d": 15
+  "93d": 15,
+  "130m": 7,
+  "65m": 5,
+  "195m": 8,
+  "390m": 10
 };
 
 // Load environment variables from .env.local
@@ -64,7 +68,6 @@ export async function GET(request: Request) {
       JOIN crypto.timeframes st ON z.timeframe_id = st.id
       WHERE
         z.bottom_price IS NOT NULL
-        AND z.is_broken = False
         AND st.id = ${timeframeId}
         ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
       ORDER BY s.symbol, z.bottom_price DESC
