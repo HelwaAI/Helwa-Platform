@@ -428,7 +428,12 @@ export default function CryptoDashboardPage() {
       "Daily": "1d",
       "7d": "7d",
       "31d": "31d",
-      "93d": "93d"
+      "93d": "93d",
+      "65min": '65m',
+      "130min": '130m',
+      "195min": '195m',
+      "390min": '390m',
+
     };
     const limitMap: Record<string, number> = {
       "5min": 8640,
@@ -441,7 +446,11 @@ export default function CryptoDashboardPage() {
       "Daily": 1095,
       "7d": 104,
       "31d": 35,
-      "93d": 19
+      "93d": 19,
+      "65min": 3988,
+      "130min": 4044,
+      "195min": 2696,
+      "390min": 4044,
     };
     const hoursMap: Record<string, number> = {
       "5min": 720,
@@ -454,7 +463,11 @@ export default function CryptoDashboardPage() {
       "Daily": 87600,     // ~10 years for day-based timeframes
       "7d": 87600,        // ~10 years
       "31d": 87600,       // ~10 years
-      "93d": 87600        // ~10 years
+      "93d": 87600,        // ~10 years
+      "65min": 4320,
+      "130min": 8760,
+      "195min": 8760,
+      "390min": 26280,
     };
     setTimeframe(timeframeMap[selected] || selected);
     setLimit(limitMap[selected] || 8640);
@@ -816,6 +829,10 @@ export default function CryptoDashboardPage() {
                     <option>2h</option>
                     <option>4h</option>
                     <option>8h</option>
+                    <option>65min</option>
+                    <option>130min</option>
+                    <option>195min</option>
+                    <option>390min</option>
                     <option>Daily</option>
                     <option>7d</option>
                     <option>31d</option>

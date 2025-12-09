@@ -14,7 +14,11 @@ const timeframeMap = {
   "1d": 12,
   "7d": 13,
   "31d": 14,
-  "93d": 15
+  "93d": 15,
+  "130m": 7,
+  "65m": 5,
+  "195m": 8,
+  "390m": 10
 };
 
 // Load environment variables from .env.local

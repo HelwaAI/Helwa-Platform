@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const days = searchParams.get('days') ? parseInt(searchParams.get('days')!) : null;
 
   // Validate timeframe to prevent SQL injection
-  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d'];
+  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d', '65m', '130m', '195m', '390m'];
   if (!validTimeframes.includes(timeframe)) {
     return NextResponse.json(
       { success: false, error: 'Invalid timeframe' },
