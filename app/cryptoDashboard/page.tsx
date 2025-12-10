@@ -317,9 +317,27 @@ export default function CryptoDashboardPage() {
   const drawingToolbarRef = useRef<HTMLDivElement>(null);
   const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
+  const chartInstanceRef = useRef<IChartApi | null>(null);
+  const pendingZoneSnapRef = useRef<string | null>(null);
   const [timeframe, setTimeframe] = useState("5m");
   const [limit, setLimit] = useState(8640);
   const [hours, setHours] = useState(720);
+  const [zoneSearchQuery, setZoneSearchQuery] = useState("");
+  const [selectedTimeframeKey, setSelectedTimeframeKey] = useState("5min");
+  const [entryTargetStopLoss, setEntryTargetStopLoss] = useState<Record<string, {
+    entry_price: number;
+    target_price: number;
+    stop_loss: number;
+  }> | null>(null);
+  const [zoneTooltip, setZoneTooltip] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    zoneId: string;
+    topPrice: number;
+    bottomPrice: number;
+    zoneType: string;
+  } | null>(null);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
   console.log("Timeframe: ", timeframe);
@@ -352,8 +370,16 @@ export default function CryptoDashboardPage() {
     }
   }, [timeframe, limit, hours]);
 
+
+
+
   // Fetch crypto data based on symbol
-  const fetchCryptoData = async (symbol: string) => {
+  const fetchCryptoData = async (
+    symbol: string,
+    customTimeframe?: string,
+    customLimit?: number,
+    customHours?: number
+  ) => {
     if (!symbol.trim()) {
       setCryptoData(null);
       setZonesData(null);
@@ -361,18 +387,40 @@ export default function CryptoDashboardPage() {
       return;
     }
 
+    // Use custom values if provided, otherwise use state
+    const tf = customTimeframe ?? timeframe;
+    const lim = customLimit ?? limit;
+    const hrs = customHours ?? hours;
+
     try {
       setFetching(true);
       setError(null);
 
       // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
+      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
+      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${tf}`);
       const zonesDataResponse = await zonesResponse.json();
 
+      // Fetch entry/target/stoploss data (may not exist for all symbols)
+      try {
+        const entryTargetResponse = await fetch(`/api/crypto/entrytargetstoploss?symbol=${symbol.toUpperCase()}`);
+        const entryTargetData = await entryTargetResponse.json();
+
+        if (entryTargetData.success && entryTargetData.data) {
+          console.log("Entry/Target/StopLoss Data: ", entryTargetData.data);
+          setEntryTargetStopLoss(entryTargetData.data);
+        } else {
+          console.log("No alert data for this symbol");
+          setEntryTargetStopLoss(null);
+        }
+      } catch (err) {
+        // 404 or other error - no alert data for this symbol
+        console.log("No alert data available for this symbol");
+        setEntryTargetStopLoss(null);
+      }
 
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setCryptoData(aggregatesData.data[0]);
@@ -397,6 +445,96 @@ export default function CryptoDashboardPage() {
       setFetching(false);
     }
   };
+
+  // fetch crypto data based on zone_id
+  const fetchCryptoDataWithZoneID = async (zoneId: string) => {
+    if (!zoneId.trim()) {
+      setCryptoData(null);
+      setZonesData(null);
+      setError(null);
+      return;
+    }
+
+    try {
+      setFetching(true);
+      setError(null);
+
+      // Step 1: Fetch zone search data to get symbol and timeframe
+      const zoneSearchResponse = await fetch(`/api/crypto/searchzoneid?zone_id=${zoneId}`);
+      const zoneSearchData = await zoneSearchResponse.json();
+      console.log("ZONE SEARCH TEST: ", zoneSearchData);
+
+      if (!zoneSearchData.success) {
+        setError(zoneSearchData.error || `Zone ${zoneId} not found`);
+        setCryptoData(null);
+        setZonesData(null);
+        setFetching(false);
+        return;
+      }
+
+      const { symbol, timeframe: timeframeLabel } = zoneSearchData.data;
+      console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
+
+      // Step 2: Get limit and hours from timeframe using the same maps as handleTimeframeChange
+      const timeframeMap: Record<string, string> = {
+        "5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h", "2h": "2h",
+        "4h": "4h", "8h": "8h", "Daily": "1d", "7d": "7d", "31d": "31d", "93d": "93d",
+        "65min": '65m', "130min": '130m', "195min": '195m', "390min": '390m',
+      };
+      const limitMap: Record<string, number> = {
+        "5min": 8640, "15min": 5760, "30min": 4320, "1h": 2160, "2h": 1080,
+        "4h": 1080, "8h": 1095, "Daily": 1095, "7d": 104, "31d": 35, "93d": 19,
+        "65min": 3988, "130min": 4044, "195min": 2696, "390min": 4044,
+      };
+      const hoursMap: Record<string, number> = {
+        "5min": 720, "15min": 1440, "30min": 2160, "1h": 2160, "2h": 2160,
+        "4h": 4320, "8h": 8760, "Daily": 87600, "7d": 87600, "31d": 87600, "93d": 87600,
+        "65min": 4320, "130min": 8760, "195min": 8760, "390min": 26280,
+      };
+
+      // Check if timeframeLabel is a key in the map (e.g., "30min")
+      // If so, use it directly; otherwise do reverse lookup
+      let timeframeKey = timeframeLabel;
+      let timeframeValue = timeframeMap[timeframeLabel];
+
+      if (!timeframeValue) {
+        // Try reverse lookup: find the key that maps to this value
+        timeframeKey = Object.keys(timeframeMap).find(key => timeframeMap[key] === timeframeLabel) || '';
+        timeframeValue = timeframeLabel;
+      }
+
+      if (!timeframeKey || !timeframeValue) {
+        setError(`Unknown timeframe: ${timeframeLabel}`);
+        setCryptoData(null);
+        setZonesData(null);
+        setFetching(false);
+        return;
+      }
+
+      const newLimit = limitMap[timeframeKey] || 8640;
+      const newHours = hoursMap[timeframeKey] || 720;
+
+      // Step 3: Update UI state - symbol search bar, timeframe dropdown, limit, and hours
+      setSearchQuery(symbol);
+      setSelectedTimeframeKey(timeframeKey); // Update dropdown selection
+      setTimeframe(timeframeValue);
+      setLimit(newLimit);
+      setHours(newHours);
+
+      console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
+
+      // Step 4: Call the existing fetchCryptoData function with the new values
+      // Pass the values directly since state updates are async
+      await fetchCryptoData(symbol, timeframeValue, newLimit, newHours);
+
+    } catch (err: any) {
+      setError(`Error fetching data: ${err.message}`);
+      setCryptoData(null);
+      setZonesData(null);
+      setFetching(false);
+    }
+  };
+
 
   // Handle search when Enter key is pressed
   const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -469,10 +607,79 @@ export default function CryptoDashboardPage() {
       "195min": 8760,
       "390min": 26280,
     };
+    setSelectedTimeframeKey(selected);
     setTimeframe(timeframeMap[selected] || selected);
     setLimit(limitMap[selected] || 8640);
     setHours(hoursMap[selected] || 720);
   };
+
+  // Handle zone search and zoom to zone
+  const handleZoneSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const zoneId = zoneSearchQuery.trim();
+      if (!zoneId || !zonesData || !zonesData.zones || !chartInstanceRef.current) {
+        return;
+      }
+
+      // Find the zone by zone_id
+      const targetZone = zonesData.zones.find((z: any) => z.zone_id.toString() === zoneId);
+
+      if (!targetZone) {
+        setError(`Zone ${zoneId} not found`);
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+
+      try {
+        // Convert zone times to Unix timestamps
+        const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+
+        // Position zone at left edge with a fixed wide view window
+        // Use a fixed time window regardless of zone duration
+        const leftPadding = 3600; // 1 hour before zone start
+        const rightWindow = 259200; // 3 days after zone start - balanced zoom level
+
+        // Set visible range with zone at left edge
+        chartInstanceRef.current.timeScale().setVisibleRange({
+          from: (zoneStartTime - leftPadding) as Time,
+          to: (zoneStartTime + rightWindow) as Time,
+        });
+
+        console.log(`Zoomed to zone ${zoneId}:`, {
+          startTime: new Date(zoneStartTime * 1000).toISOString(),
+          visibleFrom: new Date((zoneStartTime - leftPadding) * 1000).toISOString(),
+          visibleTo: new Date((zoneStartTime + rightWindow) * 1000).toISOString(),
+          windowDays: (rightWindow / 86400).toFixed(1)
+        });
+      } catch (err) {
+        console.error('Error zooming to zone:', err);
+        setError('Error zooming to zone');
+        setTimeout(() => setError(null), 3000);
+      }
+    }
+  };
+
+  // Handle zone ID search - fetch data globally and snap to zone
+  const handleZoneIdSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const zoneId = zoneSearchQuery.trim();
+      if (!zoneId) {
+        return;
+      }
+
+      // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+      await fetchCryptoDataWithZoneID(zoneId);
+
+      // Step 2: Set pending zone to snap to
+      // The useEffect watching zonesData will handle the actual snapping
+      pendingZoneSnapRef.current = zoneId;
+      console.log(`Set pending zone snap to ${zoneId}`);
+
+      // Clear the search query
+      setZoneSearchQuery('');
+    }
+  };
+
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
     console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
@@ -519,6 +726,9 @@ export default function CryptoDashboardPage() {
           borderColor: 'rgba(232, 213, 181, 0.2)',
         },
       });
+
+      // Store chart instance for later access (e.g., zoom to zone)
+      chartInstanceRef.current = chart;
 
       // Add candlestick series
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -670,6 +880,82 @@ export default function CryptoDashboardPage() {
         });
       }
 
+      // Add crosshair move handler for zone tooltips
+      chart.subscribeCrosshairMove((param) => {
+        if (!param.point || !param.time || !zonesData || !zonesData.zones) {
+          setZoneTooltip(null);
+          return;
+        }
+
+        const price = candlestickSeries.coordinateToPrice(param.point.y);
+        const time = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+
+        if (price === null) {
+          setZoneTooltip(null);
+          return;
+        }
+
+        // Check if mouse is within any zone
+        for (const zone of zonesData.zones) {
+          const topPrice = parseFloat(zone.top_price);
+          const bottomPrice = parseFloat(zone.bottom_price);
+          const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
+          const zoneEndTime = zone.end_time
+            ? Math.floor(new Date(zone.end_time).getTime() / 1000)
+            : zoneStartTime + 86400;
+
+          // Check if mouse is within zone bounds (price and time)
+          if (price <= topPrice && price >= bottomPrice && time >= zoneStartTime && time <= zoneEndTime) {
+            setZoneTooltip({
+              visible: true,
+              x: param.point.x,
+              y: param.point.y,
+              zoneId: zone.zone_id,
+              topPrice: topPrice,
+              bottomPrice: bottomPrice,
+              zoneType: zone.zone_type
+            });
+            return;
+          }
+        }
+
+        // No zone under mouse
+        setZoneTooltip(null);
+      });
+
+      // Check if there's a pending zone to snap to after chart and zones are ready
+      if (pendingZoneSnapRef.current && zonesData && zonesData.zones) {
+        const zoneId = pendingZoneSnapRef.current;
+        const targetZone = zonesData.zones.find((z: any) => z.zone_id.toString() === zoneId);
+
+        if (targetZone) {
+          // Small delay to ensure zones are fully rendered
+          setTimeout(() => {
+            try {
+              const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+              const leftPadding = 3600; // 1 hour before zone start
+              const rightWindow = 259200; // 3 days after zone start
+
+              chart.timeScale().setVisibleRange({
+                from: (zoneStartTime - leftPadding) as Time,
+                to: (zoneStartTime + rightWindow) as Time,
+              });
+
+              console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
+
+              // Clear the pending snap
+              pendingZoneSnapRef.current = null;
+            } catch (err) {
+              console.error('Error snapping to zone:', err);
+              pendingZoneSnapRef.current = null;
+            }
+          }, 200);
+        } else {
+          console.warn(`Zone ${zoneId} not found in zones data`);
+          pendingZoneSnapRef.current = null;
+        }
+      }
+
       // Handle window resize
       const handleResize = () => {
         if (chartContainerRef.current) {
@@ -697,6 +983,7 @@ export default function CryptoDashboardPage() {
         //   drawingToolRef.current = null;
         // }
         chart.remove();
+        chartInstanceRef.current = null;
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
@@ -821,7 +1108,7 @@ export default function CryptoDashboardPage() {
                   <select
                     className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
                     onChange={handleTimeframeChange}
-                    defaultValue="5min"
+                    value={selectedTimeframeKey}
                   >                    <option>5min</option>
                     <option>15min</option>
                     <option>30min</option>
@@ -838,6 +1125,18 @@ export default function CryptoDashboardPage() {
                     <option>31d</option>
                     <option>93d</option>
                   </select>
+                  <div className="relative">
+                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Zone ID... Press Enter"
+                      value={zoneSearchQuery}
+                      onChange={(e) => setZoneSearchQuery(e.target.value)}
+                      onKeyDown={handleZoneIdSearch}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                    />
+                  </div>
                   {/* <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
                       <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
@@ -867,6 +1166,35 @@ export default function CryptoDashboardPage() {
                   ref={chartContainerRef}
                   className="w-full h-full"
                 />
+
+                {/* Zone Hover Tooltip */}
+                {zoneTooltip && zoneTooltip.visible && (
+                  <div
+                    className="absolute bg-elevated border border-accent/50 rounded-lg p-3 shadow-honey-lg pointer-events-none z-50"
+                    style={{
+                      left: `${zoneTooltip.x + 15}px`,
+                      top: `${zoneTooltip.y - 80}px`,
+                    }}
+                  >
+                    <div className="text-xs font-semibold text-accent mb-1">
+                      Zone {zoneTooltip.zoneId} ({zoneTooltip.zoneType})
+                    </div>
+                    <div className="text-xs text-primary space-y-0.5">
+                      <div>Top: <span className="font-mono text-success">${zoneTooltip.topPrice}</span></div>
+                      <div>Bottom: <span className="font-mono text-secondary">${zoneTooltip.bottomPrice}</span></div>
+
+                      {/* Show entry/target/stoploss if available for this specific zone */}
+                      {entryTargetStopLoss && entryTargetStopLoss[zoneTooltip.zoneId] && (
+                        <>
+                          <div className="border-t border-accent/30 my-1 pt-1"></div>
+                          <div>Entry: <span className="font-mono text-accent">${entryTargetStopLoss[zoneTooltip.zoneId].entry_price}</span></div>
+                          <div>Target: <span className="font-mono text-success">${entryTargetStopLoss[zoneTooltip.zoneId].target_price}</span></div>
+                          <div>Stop Loss: <span className="font-mono text-red-400">${entryTargetStopLoss[zoneTooltip.zoneId].stop_loss}</span></div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Lock Overlay for Free Users */}
                 {isLocked && (
