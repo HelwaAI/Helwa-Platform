@@ -313,9 +313,27 @@ export default function DashboardPage() {
   const drawingToolbarRef = useRef<HTMLDivElement>(null);
   const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
+  const chartInstanceRef = useRef<IChartApi | null>(null);
+  const pendingZoneSnapRef = useRef<string | null>(null);
   const [timeframe, setTimeframe] = useState("2m");
   const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
+  const [zoneSearchQuery, setZoneSearchQuery] = useState("");
+  const [selectedTimeframeKey, setSelectedTimeframeKey] = useState("2min");
+  const [entryTargetStopLoss, setEntryTargetStopLoss] = useState<Record<string, {
+    entry_price: number;
+    target_price: number;
+    stop_loss: number;
+  }> | null>(null);
+  const [zoneTooltip, setZoneTooltip] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    zoneId: string;
+    topPrice: number;
+    bottomPrice: number;
+    zoneType: string;
+  } | null>(null);
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
@@ -346,7 +364,12 @@ export default function DashboardPage() {
   }, [timeframe, limit, hours]);
 
   // Fetch stock data based on symbol
-  const fetchStockData = async (symbol: string) => {
+  const fetchStockData = async (
+    symbol: string,
+    customTimeframe?: string,
+    customLimit?: number,
+    customHours?: number
+  ) => {
     if (!symbol.trim()) {
       setStockData(null);
       setZonesData(null);
@@ -354,17 +377,40 @@ export default function DashboardPage() {
       return;
     }
 
+    // Use custom values if provided, otherwise use state
+    const tf = customTimeframe ?? timeframe;
+    const lim = customLimit ?? limit;
+    const hrs = customHours ?? hours;
+
     try {
       setFetching(true);
       setError(null);
 
       // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/stocks/aggregates?symbols=${symbol.toUpperCase()}&limit=${limit}&timeframe=${timeframe}&hours=${hours}`);
+      const aggregatesResponse = await fetch(`/api/stocks/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/stocks/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${timeframe}`);
+      const zonesResponse = await fetch(`/api/stocks/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${tf}`);
       const zonesDataResponse = await zonesResponse.json();
+
+      // Fetch entry/target/stoploss data (may not exist for all symbols)
+      try {
+        const entryTargetResponse = await fetch(`/api/stocks/entrytargetstoploss?symbol=${symbol.toUpperCase()}`);
+        const entryTargetData = await entryTargetResponse.json();
+
+        if (entryTargetData.success && entryTargetData.data) {
+          console.log("Entry/Target/StopLoss Data: ", entryTargetData.data);
+          setEntryTargetStopLoss(entryTargetData.data);
+        } else {
+          console.log("No alert data for this symbol");
+          setEntryTargetStopLoss(null);
+        }
+      } catch (err) {
+        // 404 or other error - no alert data for this symbol
+        console.log("No alert data available for this symbol");
+        setEntryTargetStopLoss(null);
+      }
 
       if (aggregatesData.success && aggregatesData.data.length > 0) {
         setStockData(aggregatesData.data[0]);
@@ -387,6 +433,98 @@ export default function DashboardPage() {
       setStockData(null);
       setZonesData(null);
     } finally {
+      setFetching(false);
+    }
+  };
+
+  // fetch stock data based on zone_id
+  const fetchStockDataWithZoneID = async (zoneId: string) => {
+    if (!zoneId.trim()) {
+      setStockData(null);
+      setZonesData(null);
+      setError(null);
+      return;
+    }
+
+    try {
+      setFetching(true);
+      setError(null);
+
+      // Step 1: Fetch zone search data to get symbol and timeframe
+      const zoneSearchResponse = await fetch(`/api/stocks/searchzoneid?zone_id=${zoneId}`);
+      const zoneSearchData = await zoneSearchResponse.json();
+      console.log("ZONE SEARCH TEST: ", zoneSearchData);
+
+      if (!zoneSearchData.success) {
+        setError(zoneSearchData.error || `Zone ${zoneId} not found`);
+        setStockData(null);
+        setZonesData(null);
+        setFetching(false);
+        return;
+      }
+
+      const { symbol, timeframe: timeframeLabel } = zoneSearchData.data;
+      console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
+
+      // Step 2: Get limit and hours from timeframe using the same maps as handleTimeframeChange
+      const timeframeMap: Record<string, string> = {
+        "2min": "2m", "3min": "3m", "5min": "5m", "6min": "6m", "10min": "10m",
+        "13min": "13m", "15min": "15m", "26min": "26m", "30min": "30m", "39min": "39m",
+        "65min": "65m", "78min": "78m", "130min": "130m", "195min": "195m", "390min": "390m",
+        "Daily": "1d", "5d": "5d", "22d": "22d", "65d": "65d",
+      };
+      const limitMap: Record<string, number> = {
+        "2min": 5850, "3min": 3900, "5min": 2340, "6min": 3900, "10min": 1755,
+        "13min": 1800, "15min": 1560, "26min": 1350, "30min": 1170, "39min": 1800,
+        "65min": 1080, "78min": 900, "130min": 1095, "195min": 730, "390min": 1095,
+        "Daily": 1095, "5d": 438, "22d": 249, "65d": 85,
+      };
+      const hoursMap: Record<string, number> = {
+        "2min": 720, "3min": 720, "5min": 720, "6min": 1440, "10min": 1080,
+        "13min": 1440, "15min": 1440, "26min": 2160, "30min": 2160, "39min": 4320,
+        "65min": 4320, "78min": 4320, "130min": 43800, "195min": 43800, "390min": 43800,
+        "Daily": 219000, "5d": 219000, "22d": 219000, "65d": 219000,
+      };
+
+      // Check if timeframeLabel is a key in the map (e.g., "30min")
+      // If so, use it directly; otherwise do reverse lookup
+      let timeframeKey = timeframeLabel;
+      let timeframeValue = timeframeMap[timeframeLabel];
+
+      if (!timeframeValue) {
+        // Try reverse lookup: find the key that maps to this value
+        timeframeKey = Object.keys(timeframeMap).find(key => timeframeMap[key] === timeframeLabel) || '';
+        timeframeValue = timeframeLabel;
+      }
+
+      if (!timeframeKey || !timeframeValue) {
+        setError(`Unknown timeframe: ${timeframeLabel}`);
+        setStockData(null);
+        setZonesData(null);
+        setFetching(false);
+        return;
+      }
+
+      const newLimit = limitMap[timeframeKey] || 5850;
+      const newHours = hoursMap[timeframeKey] || 720;
+
+      // Step 3: Update UI state - symbol search bar, timeframe dropdown, limit, and hours
+      setSearchQuery(symbol);
+      setSelectedTimeframeKey(timeframeKey); // Update dropdown selection
+      setTimeframe(timeframeValue);
+      setLimit(newLimit);
+      setHours(newHours);
+
+      console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
+
+      // Step 4: Call the existing fetchStockData function with the new values
+      // Pass the values directly since state updates are async
+      await fetchStockData(symbol, timeframeValue, newLimit, newHours);
+
+    } catch (err: any) {
+      setError(`Error fetching data: ${err.message}`);
+      setStockData(null);
+      setZonesData(null);
       setFetching(false);
     }
   };
@@ -475,9 +613,31 @@ export default function DashboardPage() {
       "22d": 219000,      // ~25 years
       "65d": 219000,      // ~25 years
     };
+    setSelectedTimeframeKey(selected);
     setTimeframe(timeframeMap[selected] || selected);
     setLimit(limitMap[selected] || 5850);
     setHours(hoursMap[selected] || 720);
+  };
+
+  // Handle zone ID search - fetch data globally and snap to zone
+  const handleZoneIdSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const zoneId = zoneSearchQuery.trim();
+      if (!zoneId) {
+        return;
+      }
+
+      // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+      await fetchStockDataWithZoneID(zoneId);
+
+      // Step 2: Set pending zone to snap to
+      // The useEffect watching zonesData will handle the actual snapping
+      pendingZoneSnapRef.current = zoneId;
+      console.log(`Set pending zone snap to ${zoneId}`);
+
+      // Clear the search query
+      setZoneSearchQuery('');
+    }
   };
 
   // Initialize candlestick chart when stockData changes
@@ -525,6 +685,9 @@ export default function DashboardPage() {
           borderColor: 'rgba(232, 213, 181, 0.2)',
         },
       });
+
+      // Store chart instance for later access (e.g., zoom to zone)
+      chartInstanceRef.current = chart;
 
       // Add candlestick series
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -637,6 +800,82 @@ export default function DashboardPage() {
         });
       }
 
+      // Add crosshair move handler for zone tooltips
+      chart.subscribeCrosshairMove((param) => {
+        if (!param.point || !param.time || !zonesData || !zonesData.zones) {
+          setZoneTooltip(null);
+          return;
+        }
+
+        const price = candlestickSeries.coordinateToPrice(param.point.y);
+        const time = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+
+        if (price === null) {
+          setZoneTooltip(null);
+          return;
+        }
+
+        // Check if mouse is within any zone
+        for (const zone of zonesData.zones) {
+          const topPrice = parseFloat(zone.top_price);
+          const bottomPrice = parseFloat(zone.bottom_price);
+          const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
+          const zoneEndTime = zone.end_time
+            ? Math.floor(new Date(zone.end_time).getTime() / 1000)
+            : zoneStartTime + 86400;
+
+          // Check if mouse is within zone bounds (price and time)
+          if (price <= topPrice && price >= bottomPrice && time >= zoneStartTime && time <= zoneEndTime) {
+            setZoneTooltip({
+              visible: true,
+              x: param.point.x,
+              y: param.point.y,
+              zoneId: zone.zone_id,
+              topPrice: topPrice,
+              bottomPrice: bottomPrice,
+              zoneType: zone.zone_type
+            });
+            return;
+          }
+        }
+
+        // No zone under mouse
+        setZoneTooltip(null);
+      });
+
+      // Check if there's a pending zone to snap to after chart and zones are ready
+      if (pendingZoneSnapRef.current && zonesData && zonesData.zones) {
+        const zoneId = pendingZoneSnapRef.current;
+        const targetZone = zonesData.zones.find((z: any) => z.zone_id.toString() === zoneId);
+
+        if (targetZone) {
+          // Small delay to ensure zones are fully rendered
+          setTimeout(() => {
+            try {
+              const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+              const leftPadding = 3600; // 1 hour before zone start
+              const rightWindow = 259200; // 3 days after zone start
+
+              chart.timeScale().setVisibleRange({
+                from: (zoneStartTime - leftPadding) as Time,
+                to: (zoneStartTime + rightWindow) as Time,
+              });
+
+              console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
+
+              // Clear the pending snap
+              pendingZoneSnapRef.current = null;
+            } catch (err) {
+              console.error('Error snapping to zone:', err);
+              pendingZoneSnapRef.current = null;
+            }
+          }, 200);
+        } else {
+          console.warn(`Zone ${zoneId} not found in zones data`);
+          pendingZoneSnapRef.current = null;
+        }
+      }
+
       // Handle window resize
       const handleResize = () => {
         if (chartContainerRef.current) {
@@ -659,6 +898,7 @@ export default function DashboardPage() {
         zonePrimitivesRef.current = [];
 
         chart.remove();
+        chartInstanceRef.current = null;
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
@@ -781,7 +1021,7 @@ export default function DashboardPage() {
                   <select
                     className="bg-background border border-border rounded px-3 py-1.5 text-sm text-primary"
                     onChange={handleTimeframeChange}
-                    defaultValue="2min"
+                    value={selectedTimeframeKey}
                   >
                     <option>2min</option>
                     <option>3min</option>
@@ -803,6 +1043,18 @@ export default function DashboardPage() {
                     <option>22d</option>
                     <option>65d</option>
                   </select>
+                  <div className="relative">
+                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Zone ID... Press Enter"
+                      value={zoneSearchQuery}
+                      onChange={(e) => setZoneSearchQuery(e.target.value)}
+                      onKeyDown={handleZoneIdSearch}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                    />
+                  </div>
                   <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
                       <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
@@ -829,6 +1081,35 @@ export default function DashboardPage() {
                   className="w-full h-full"
                   style={{ minHeight: '400px' }}
                 />
+
+                {/* Zone Hover Tooltip */}
+                {zoneTooltip && zoneTooltip.visible && (
+                  <div
+                    className="absolute bg-elevated border border-accent/50 rounded-lg p-3 shadow-honey-lg pointer-events-none z-50"
+                    style={{
+                      left: `${zoneTooltip.x + 15}px`,
+                      top: `${zoneTooltip.y - 80}px`,
+                    }}
+                  >
+                    <div className="text-xs font-semibold text-accent mb-1">
+                      Zone {zoneTooltip.zoneId} ({zoneTooltip.zoneType})
+                    </div>
+                    <div className="text-xs text-primary space-y-0.5">
+                      <div>Top: <span className="font-mono text-success">${zoneTooltip.topPrice}</span></div>
+                      <div>Bottom: <span className="font-mono text-secondary">${zoneTooltip.bottomPrice}</span></div>
+
+                      {/* Show entry/target/stoploss if available for this specific zone */}
+                      {entryTargetStopLoss && entryTargetStopLoss[zoneTooltip.zoneId] && (
+                        <>
+                          <div className="border-t border-accent/30 my-1 pt-1"></div>
+                          <div>Entry: <span className="font-mono text-accent">${entryTargetStopLoss[zoneTooltip.zoneId].entry_price}</span></div>
+                          <div>Target: <span className="font-mono text-success">${entryTargetStopLoss[zoneTooltip.zoneId].target_price}</span></div>
+                          <div>Stop Loss: <span className="font-mono text-red-400">${entryTargetStopLoss[zoneTooltip.zoneId].stop_loss}</span></div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Lock Overlay for Free Users */}
                 {isLocked && (
