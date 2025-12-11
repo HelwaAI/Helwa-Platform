@@ -999,12 +999,13 @@ export default function DashboardPage() {
 
         {/* Main Dashboard Grid */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Center: Chart Area */}
-          <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+          {/* Center: Chart and Stats Area */}
+          <div className="flex-1 flex flex-col">
             {/* Chart Container */}
-            <div className="flex-1 bg-panel border border-border rounded-lg relative min-h-[500px]">
+            <div className="flex-1 p-4 pb-2">
+              <div className="h-full bg-panel border border-border rounded-lg flex flex-col">
               {/* Chart Header */}
-              <div className="bg-elevated p-3 border-b border-border flex items-center justify-between">
+              <div className="bg-elevated p-3 border-b border-border flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
@@ -1074,12 +1075,11 @@ export default function DashboardPage() {
               </div>
 
               {/* Chart Content */}
-              <div className="h-full p-4 relative">
+              <div className="flex-1 p-4 relative min-h-0">
                 {/* Lightweight Charts Container */}
                 <div
                   ref={chartContainerRef}
                   className="w-full h-full"
-                  style={{ minHeight: '400px' }}
                 />
 
                 {/* Zone Hover Tooltip */}
@@ -1139,12 +1139,14 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
-            {/* Bottom Stats Grid */}
-            <div className="grid grid-cols-4 gap-4">
+            {/* Stats Container - Separate from Chart */}
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-10">
               {stockData ? [
-                { label: 'Volume 24h', value: `${(Number(stockData.volume_24h) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
+                { label: 'Volume 24h', value: `${((Number(stockData.volume_24h) || 0) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
                 { label: 'High 24h', value: `$${Number(stockData.high_24h).toFixed(2)}`, change: `+${((Number(stockData.high_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.high_24h) > Number(stockData.latest_price) },
                 { label: 'Low 24h', value: `$${Number(stockData.low_24h).toFixed(2)}`, change: `${((Number(stockData.low_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.low_24h) < Number(stockData.latest_price) },
               ].map((stat, i) => (
@@ -1156,10 +1158,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )) : (
-                <div className="col-span-4 text-center text-secondary py-8">
+                <div className="col-span-3 text-center text-secondary py-8">
                   Search for a stock symbol (e.g., AAPL, TSLA) to view statistics
                 </div>
               )}
+              </div>
             </div>
           </div>
 
