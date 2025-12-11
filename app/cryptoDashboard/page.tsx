@@ -1160,7 +1160,7 @@ export default function CryptoDashboardPage() {
               </div>
 
               {/* Chart Content */}
-              <div className="flex-1 p-4 relative min-h-0">
+              <div className="flex-1 pt-4 pr-4 pb-4 relative min-h-0">
                 {/* Lightweight Charts Container */}
                 <div
                   ref={chartContainerRef}
