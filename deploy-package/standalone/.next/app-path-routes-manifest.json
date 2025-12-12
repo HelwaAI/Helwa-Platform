@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/crypto/aggregates/route": "/api/crypto/aggregates",
+  "/api/crypto/entrytargetstoploss/route": "/api/crypto/entrytargetstoploss",
+  "/api/crypto/searchzoneid/route": "/api/crypto/searchzoneid",
+  "/api/crypto/zones/route": "/api/crypto/zones",
+  "/api/stocks/aggregates/route": "/api/stocks/aggregates",
+  "/api/stocks/entrytargetstoploss/route": "/api/stocks/entrytargetstoploss",
+  "/api/stocks/searchzoneid/route": "/api/stocks/searchzoneid",
+  "/api/stocks/zones/route": "/api/stocks/zones",
+  "/cryptoDashboard/page": "/cryptoDashboard",
+  "/dashboard/page": "/dashboard",
+  "/login/page": "/login",
+  "/page": "/",
+  "/signup/page": "/signup"
+}

@@ -824,6 +824,16 @@ export default function DashboardPage() {
             ? Math.floor(new Date(zone.end_time).getTime() / 1000)
             : zoneStartTime + 86400;
 
+          // Verify zone has valid coordinates before showing tooltip
+          // Only show tooltip if the zone is actually rendered on the chart
+          const startCoordinate = chart.timeScale().timeToCoordinate(zoneStartTime as Time);
+          const endCoordinate = chart.timeScale().timeToCoordinate(zoneEndTime as Time);
+
+          // Skip zones that can't be rendered (times outside chart data range)
+          if (startCoordinate === null || endCoordinate === null) {
+            continue;
+          }
+
           // Check if mouse is within zone bounds (price and time)
           if (price <= topPrice && price >= bottomPrice && time >= zoneStartTime && time <= zoneEndTime) {
             setZoneTooltip({
