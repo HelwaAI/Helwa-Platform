@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "app/_global-error/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/crypto/aggregates/route": "app/api/crypto/aggregates/route.js",
+  "/api/crypto/entrytargetstoploss/route": "app/api/crypto/entrytargetstoploss/route.js",
+  "/api/crypto/searchzoneid/route": "app/api/crypto/searchzoneid/route.js",
+  "/api/crypto/zones/route": "app/api/crypto/zones/route.js",
+  "/api/stocks/aggregates/route": "app/api/stocks/aggregates/route.js",
+  "/api/stocks/entrytargetstoploss/route": "app/api/stocks/entrytargetstoploss/route.js",
+  "/api/stocks/searchzoneid/route": "app/api/stocks/searchzoneid/route.js",
+  "/api/stocks/zones/route": "app/api/stocks/zones/route.js",
+  "/cryptoDashboard/page": "app/cryptoDashboard/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/signup/page": "app/signup/page.js"
+}
