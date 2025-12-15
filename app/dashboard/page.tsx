@@ -391,7 +391,7 @@ export default function DashboardPage() {
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/stocks/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${tf}`);
+      const zonesResponse = await fetch(`/api/stocks/zones?symbols=${symbol.toUpperCase()}&timeframe=${tf}`);
       const zonesDataResponse = await zonesResponse.json();
 
       // Fetch entry/target/stoploss data (may not exist for all symbols)
@@ -470,19 +470,19 @@ export default function DashboardPage() {
       const timeframeMap: Record<string, string> = {
         "2min": "2m", "3min": "3m", "5min": "5m", "6min": "6m", "10min": "10m",
         "13min": "13m", "15min": "15m", "26min": "26m", "30min": "30m", "39min": "39m",
-        "65min": "65m", "78min": "78m", "130min": "130m", "195min": "195m", "390min": "390m",
+        "65min": "65m", "78min": "78m", "130min": "130m", "195min": "195m",
         "Daily": "1d", "5d": "5d", "22d": "22d", "65d": "65d",
       };
       const limitMap: Record<string, number> = {
         "2min": 5850, "3min": 3900, "5min": 2340, "6min": 3900, "10min": 1755,
         "13min": 1800, "15min": 1560, "26min": 1350, "30min": 1170, "39min": 1800,
-        "65min": 1080, "78min": 900, "130min": 1095, "195min": 730, "390min": 1095,
+        "65min": 1080, "78min": 900, "130min": 1095, "195min": 730,
         "Daily": 1095, "5d": 438, "22d": 249, "65d": 85,
       };
       const hoursMap: Record<string, number> = {
         "2min": 720, "3min": 720, "5min": 720, "6min": 1440, "10min": 1080,
         "13min": 1440, "15min": 1440, "26min": 2160, "30min": 2160, "39min": 4320,
-        "65min": 4320, "78min": 4320, "130min": 43800, "195min": 43800, "390min": 43800,
+        "65min": 4320, "78min": 4320, "130min": 43800, "195min": 43800,
         "Daily": 219000, "5d": 219000, "22d": 219000, "65d": 219000,
       };
 
@@ -564,7 +564,6 @@ export default function DashboardPage() {
       "78min": "78m",
       "130min": "130m",
       "195min": "195m",
-      "390min": "390m",
       "Daily": "1d",
       "5d": "5d",
       "22d": "22d",
@@ -586,7 +585,6 @@ export default function DashboardPage() {
       "78min": 900,
       "130min": 1095,
       "195min": 730,
-      "390min": 1095,
       "Daily": 1095,
       "5d": 438,
       "22d": 249,
@@ -607,7 +605,6 @@ export default function DashboardPage() {
       "78min": 4320,     // ~5 years
       "130min": 43800,    // ~5 years
       "195min": 43800,    // ~5 years
-      "390min": 43800,    // ~5 years
       "Daily": 219000,    // ~25 years for day-based timeframes
       "5d": 219000,       // ~25 years
       "22d": 219000,      // ~25 years
@@ -1048,7 +1045,6 @@ export default function DashboardPage() {
                     <option>78min</option>
                     <option>130min</option>
                     <option>195min</option>
-                    <option>390min</option>
                     <option>Daily</option>
                     <option>5d</option>
                     <option>22d</option>

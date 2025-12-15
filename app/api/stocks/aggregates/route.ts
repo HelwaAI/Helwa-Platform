@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   const days = searchParams.get('days') ? parseInt(searchParams.get('days')!) : null;
   const validTimeframes = ['2m', '3m', '5m', '6m',
     '10m', '13m', '15m', '26m',
-    '30m', '39m', '65m', '78m', '130m', '195m', '390m', '1d', '5d', '22d', '65d'];
+    '30m', '39m', '65m', '78m', '130m', '195m', '1d', '5d', '22d', '65d'];
   if (!validTimeframes.includes(timeframe)) {
     return NextResponse.json(
       { success: false, error: 'Invalid timeframe' },
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     '2m': '2m', '3m': '3m', '5m': '5m', '6m': '6m',
     '10m': '10m', '13m': '13m', '15m': '15m', '26m': '26m',
     '30m': '30m', '39m': '39m',
-    '65m': '65m', '78m': '78m', '130m': '130m', '195m': '195m', '390m': '390m',
+    '65m': '65m', '78m': '78m', '130m': '130m', '195m': '195m',
     '1d': '1d', '5d': '5d', '22d': '22d', '65d': '65d'
   };
 
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   // Otherwise fall back to hours parameter with intelligent defaults
   const isDayBasedTimeframe = ['1d', '5d', '22d', '65d'].includes(timeframe);
   // Longer minute timeframes (65m+) need extended lookback periods (in days, not hours)
-  const isLongMinuteTimeframe = ['65m', '78m', '130m', '195m', '390m'].includes(timeframe);
+  const isLongMinuteTimeframe = ['65m', '78m', '130m', '195m'].includes(timeframe);
   let intervalClause: string;
 
   if (days !== null) {
