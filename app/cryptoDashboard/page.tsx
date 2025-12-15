@@ -401,7 +401,7 @@ export default function CryptoDashboardPage() {
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&limit=100&timeframe=${tf}`);
+      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&timeframe=${tf}`);
       const zonesDataResponse = await zonesResponse.json();
 
       // Fetch entry/target/stoploss data (may not exist for all symbols)

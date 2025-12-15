@@ -70,12 +70,10 @@ export async function GET(request: Request) {
         z.bottom_price IS NOT NULL
         AND st.id = ${timeframeId}
         ${symbols.length > 0 ? 'AND s.symbol = ANY($1)' : ''}
-      ORDER BY s.symbol, z.bottom_price DESC
-      LIMIT $2`;
+      ORDER BY s.symbol, z.bottom_price DESC`;
 
-    // Always pass symbols and limit in consistent order: $1 = symbols (or null), $2 = limit
-    const limit = parseInt(searchParams.get('limit') || '100');
-    const params = [symbols.length > 0 ? symbols : null, limit];
+    // Pass symbols array if provided, otherwise empty params
+    const params = symbols.length > 0 ? [symbols] : [];
     const result = await pool.query(query, params);
 
     // Group zones by symbol
