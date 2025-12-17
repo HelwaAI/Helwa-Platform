@@ -563,6 +563,14 @@ export default function CryptoDashboardPage() {
   const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
   const [showVolumeProfile, setShowVolumeProfile] = useState(false);
   const [volumeProfileNumBins, setVolumeProfileNumBins] = useState(50);
+  const [volumeProfileStartDate, setVolumeProfileStartDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 30);
+    return date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+  });
+  const [volumeProfileEndDate, setVolumeProfileEndDate] = useState(() => {
+    return new Date().toISOString().split('T')[0]; // Format as YYYY-MM-DD
+  });
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
@@ -680,12 +688,26 @@ export default function CryptoDashboardPage() {
       return;
     }
 
+    // Validate dates before fetching
+    if (!volumeProfileStartDate || !volumeProfileEndDate) {
+      console.log("Volume profile dates not set yet");
+      return;
+    }
+
     try {
-      // Calculate date range based on current timeframe
-      const endDate = new Date();
-      const startDate = new Date();
-      // Use 30 days for volume profile by default
-      startDate.setDate(startDate.getDate() - 30);
+      // Use custom start and end dates from state
+      const startDate = new Date(volumeProfileStartDate);
+      const endDate = new Date(volumeProfileEndDate);
+
+      // Check if dates are valid
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        console.error("Invalid date format for volume profile");
+        return;
+      }
+
+      // Set times to ensure full day coverage
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
 
       const response = await fetch(
         `/api/crypto/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
@@ -710,7 +732,7 @@ export default function CryptoDashboardPage() {
     if (showVolumeProfile && searchQuery.trim()) {
       fetchVolumeProfile(searchQuery, volumeProfileNumBins);
     }
-  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe]);
+  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe, volumeProfileStartDate, volumeProfileEndDate]);
 
   // fetch crypto data based on zone_id
   const fetchCryptoDataWithZoneID = async (zoneId: string) => {
@@ -1447,17 +1469,41 @@ export default function CryptoDashboardPage() {
                   </button>
                   {/* Volume Profile Bins Selector (only show when VP is active) */}
                   {showVolumeProfile && (
-                    <select
-                      className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
-                      value={volumeProfileNumBins}
-                      onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
-                      title="Number of bins"
-                    >
-                      <option value={25}>25 bins</option>
-                      <option value={50}>50 bins</option>
-                      <option value={75}>75 bins</option>
-                      <option value={100}>100 bins</option>
-                    </select>
+                    <>
+                      <select
+                        className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                        value={volumeProfileNumBins}
+                        onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
+                        title="Number of bins"
+                      >
+                        <option value={25}>25 bins</option>
+                        <option value={50}>50 bins</option>
+                        <option value={75}>75 bins</option>
+                        <option value={100}>100 bins</option>
+                      </select>
+                      {/* Start Date */}
+                      <div className="flex items-center gap-1">
+                        <label className="text-xs text-secondary whitespace-nowrap">From:</label>
+                        <input
+                          type="date"
+                          className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                          value={volumeProfileStartDate}
+                          onChange={(e) => setVolumeProfileStartDate(e.target.value)}
+                          title="Start date for volume profile"
+                        />
+                      </div>
+                      {/* End Date */}
+                      <div className="flex items-center gap-1">
+                        <label className="text-xs text-secondary whitespace-nowrap">To:</label>
+                        <input
+                          type="date"
+                          className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                          value={volumeProfileEndDate}
+                          onChange={(e) => setVolumeProfileEndDate(e.target.value)}
+                          title="End date for volume profile"
+                        />
+                      </div>
+                    </>
                   )}
                 </div>
                 {/* <div className="flex gap-2 items-center">
