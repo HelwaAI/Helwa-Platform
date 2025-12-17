@@ -1,6 +1,7 @@
 import { ArrowRight, Bot, Zap, Target, Shield, Activity, LineChart, Cpu, Play, Menu, Search, Globe, User } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import TopPerformers from "./components/TopPerformers";
 
 export default function Home() {
   return (
@@ -190,6 +191,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Top Performers - Live Data */}
+      <TopPerformers />
 
       {/* How It Works - Process Section */}
       <section className="py-32 px-6 lg:px-8 bg-panel/30">
