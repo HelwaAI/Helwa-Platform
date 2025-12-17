@@ -301,6 +301,227 @@ interface CryptoAggregate {
 }
 
 // ============================================================================
+// Volume Profile Types and Primitives
+// ============================================================================
+
+interface VolumeProfileNode {
+  price_level: number;
+  volume: number;
+  node_type: 'HVN' | 'LVN' | 'POC' | 'NORMAL';
+  bin_index: number;
+  price_range: [number, number];
+}
+
+interface VolumeProfileData {
+  nodes: VolumeProfileNode[];
+  hvn_nodes: VolumeProfileNode[];
+  lvn_nodes: VolumeProfileNode[];
+  poc_node: VolumeProfileNode | null;
+  hvn_threshold: number;
+  lvn_threshold: number;
+  total_volume: number;
+  price_range: [number, number];
+  bin_size: number;
+  poc_price: number | null;
+}
+
+// Volume Profile Renderer - draws horizontal bars on the right side of the chart
+class VolumeProfilePaneRenderer {
+  private _nodes: VolumeProfileNode[];
+  private _priceRange: [number, number];
+  private _maxVolume: number;
+  private _series: ISeriesApi<SeriesType> | null;
+  private _showPOC: boolean;
+  private _showHVN: boolean;
+  private _showLVN: boolean;
+
+  constructor(
+    nodes: VolumeProfileNode[],
+    priceRange: [number, number],
+    maxVolume: number,
+    series: ISeriesApi<SeriesType> | null,
+    showPOC: boolean = true,
+    showHVN: boolean = true,
+    showLVN: boolean = true
+  ) {
+    this._nodes = nodes;
+    this._priceRange = priceRange;
+    this._maxVolume = maxVolume;
+    this._series = series;
+    this._showPOC = showPOC;
+    this._showHVN = showHVN;
+    this._showLVN = showLVN;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      if (!this._series || this._nodes.length === 0) return;
+
+      const ctx = scope.context;
+      const chartWidth = scope.bitmapSize.width;
+      const maxBarWidth = chartWidth * 0.15; // Max 15% of chart width
+
+      // Draw each volume bar
+      for (const node of this._nodes) {
+        // Get Y coordinates for this price level
+        const topY = this._series.priceToCoordinate(node.price_range[1]);
+        const bottomY = this._series.priceToCoordinate(node.price_range[0]);
+
+        if (topY === null || bottomY === null) continue;
+
+        const y1 = Math.round(topY * scope.verticalPixelRatio);
+        const y2 = Math.round(bottomY * scope.verticalPixelRatio);
+        const height = Math.abs(y2 - y1);
+        const top = Math.min(y1, y2);
+
+        // Calculate bar width based on volume
+        const volumeRatio = node.volume / this._maxVolume;
+        const barWidth = volumeRatio * maxBarWidth;
+
+        // Position bar on the right side of the chart
+        const x = chartWidth - barWidth;
+
+        // Choose color based on node type
+        let fillColor = 'rgba(156, 163, 175, 0.4)'; // Default gray for NORMAL
+        let borderColor = 'rgba(156, 163, 175, 0.6)';
+
+        if (node.node_type === 'POC' && this._showPOC) {
+          fillColor = 'rgba(251, 191, 36, 0.6)'; // Yellow for POC
+          borderColor = 'rgba(251, 191, 36, 0.9)';
+        } else if (node.node_type === 'HVN' && this._showHVN) {
+          fillColor = 'rgba(239, 68, 68, 0.5)'; // Red for HVN
+          borderColor = 'rgba(239, 68, 68, 0.8)';
+        } else if (node.node_type === 'LVN' && this._showLVN) {
+          fillColor = 'rgba(139, 92, 246, 0.5)'; // Purple for LVN
+          borderColor = 'rgba(139, 92, 246, 0.8)';
+        }
+
+        // Draw the bar
+        ctx.fillStyle = fillColor;
+        ctx.fillRect(x, top, barWidth, Math.max(height, 2));
+
+        // Draw border
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, top, barWidth, Math.max(height, 2));
+      }
+
+      // Draw POC line across the entire chart
+      if (this._showPOC) {
+        const pocNode = this._nodes.find(n => n.node_type === 'POC');
+        if (pocNode) {
+          const pocY = this._series.priceToCoordinate(pocNode.price_level);
+          if (pocY !== null) {
+            const y = Math.round(pocY * scope.verticalPixelRatio);
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(chartWidth, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw POC label
+            ctx.fillStyle = '#FBBF24';
+            ctx.font = `${10 * scope.verticalPixelRatio}px sans-serif`;
+            ctx.fillText('POC', 5, y - 3);
+          }
+        }
+      }
+    });
+  }
+}
+
+// Volume Profile Pane View
+class VolumeProfilePaneView {
+  private _source: VolumeProfilePrimitive;
+
+  constructor(source: VolumeProfilePrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    // Coordinates are calculated in renderer
+  }
+
+  renderer() {
+    const maxVolume = Math.max(...this._source.nodes.map(n => n.volume), 1);
+    return new VolumeProfilePaneRenderer(
+      this._source.nodes,
+      this._source.priceRange,
+      maxVolume,
+      this._source.series,
+      this._source.showPOC,
+      this._source.showHVN,
+      this._source.showLVN
+    );
+  }
+}
+
+// Volume Profile Primitive
+class VolumeProfilePrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: VolumeProfilePaneView[];
+  private _nodes: VolumeProfileNode[];
+  private _priceRange: [number, number];
+  private _showPOC: boolean;
+  private _showHVN: boolean;
+  private _showLVN: boolean;
+  private _requestUpdate?: () => void;
+
+  constructor(
+    nodes: VolumeProfileNode[],
+    priceRange: [number, number],
+    showPOC: boolean = true,
+    showHVN: boolean = true,
+    showLVN: boolean = true
+  ) {
+    this._nodes = nodes;
+    this._priceRange = priceRange;
+    this._showPOC = showPOC;
+    this._showHVN = showHVN;
+    this._showLVN = showLVN;
+    this._paneViews = [new VolumeProfilePaneView(this)];
+  }
+
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get nodes() { return this._nodes; }
+  get priceRange() { return this._priceRange; }
+  get showPOC() { return this._showPOC; }
+  get showHVN() { return this._showHVN; }
+  get showLVN() { return this._showLVN; }
+
+  paneViews() {
+    return this._paneViews;
+  }
+
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -338,6 +559,12 @@ export default function CryptoDashboardPage() {
     bottomPrice: number;
     zoneType: string;
   } | null>(null);
+  // Volume Profile State
+  const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
+  const [showVolumeProfile, setShowVolumeProfile] = useState(false);
+  const [volumeProfileNumBins, setVolumeProfileNumBins] = useState(50);
+  const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
   console.log("Timeframe: ", timeframe);
@@ -445,6 +672,45 @@ export default function CryptoDashboardPage() {
       setFetching(false);
     }
   };
+
+  // Fetch volume profile data
+  const fetchVolumeProfile = async (symbol: string, numBins: number = 50) => {
+    if (!symbol.trim()) {
+      setVolumeProfileData(null);
+      return;
+    }
+
+    try {
+      // Calculate date range based on current timeframe
+      const endDate = new Date();
+      const startDate = new Date();
+      // Use 30 days for volume profile by default
+      startDate.setDate(startDate.getDate() - 30);
+
+      const response = await fetch(
+        `/api/crypto/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
+      );
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        console.log("Volume Profile Data: ", data.data);
+        setVolumeProfileData(data.data);
+      } else {
+        console.log("No volume profile data available");
+        setVolumeProfileData(null);
+      }
+    } catch (err) {
+      console.error("Error fetching volume profile:", err);
+      setVolumeProfileData(null);
+    }
+  };
+
+  // Effect to fetch volume profile when enabled and symbol changes
+  useEffect(() => {
+    if (showVolumeProfile && searchQuery.trim()) {
+      fetchVolumeProfile(searchQuery, volumeProfileNumBins);
+    }
+  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe]);
 
   // fetch crypto data based on zone_id
   const fetchCryptoDataWithZoneID = async (zoneId: string) => {
@@ -740,6 +1006,9 @@ export default function CryptoDashboardPage() {
         wickDownColor: '#ef5350',
       });
 
+      // Store candlestick series reference for volume profile
+      candlestickSeriesRef.current = candlestickSeries as ISeriesApi<SeriesType>;
+
       // Convert bars data to candlestick format
       const candleData = cryptoData.bars
         .map((bar) => {
@@ -880,6 +1149,25 @@ export default function CryptoDashboardPage() {
         });
       }
 
+      // Add volume profile primitive if enabled and data is available
+      if (volumeProfilePrimitiveRef.current) {
+        candlestickSeries.detachPrimitive(volumeProfilePrimitiveRef.current);
+        volumeProfilePrimitiveRef.current = null;
+      }
+
+      if (showVolumeProfile && volumeProfileData && volumeProfileData.nodes.length > 0) {
+        const volumeProfilePrimitive = new VolumeProfilePrimitive(
+          volumeProfileData.nodes,
+          volumeProfileData.price_range,
+          true, // showPOC
+          true, // showHVN
+          true  // showLVN
+        );
+        candlestickSeries.attachPrimitive(volumeProfilePrimitive);
+        volumeProfilePrimitiveRef.current = volumeProfilePrimitive;
+        console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
+      }
+
       // Add crosshair move handler for zone tooltips
       chart.subscribeCrosshairMove((param) => {
         if (!param.point || !param.time || !zonesData || !zonesData.zones) {
@@ -977,6 +1265,12 @@ export default function CryptoDashboardPage() {
         });
         zonePrimitivesRef.current = [];
 
+        // Clean up volume profile primitive
+        if (volumeProfilePrimitiveRef.current) {
+          candlestickSeries.detachPrimitive(volumeProfilePrimitiveRef.current);
+          volumeProfilePrimitiveRef.current = null;
+        }
+
         // Drawing tool cleanup - COMMENTED OUT
         // if (drawingToolRef.current) {
         //   drawingToolRef.current.remove();
@@ -984,11 +1278,12 @@ export default function CryptoDashboardPage() {
         // }
         chart.remove();
         chartInstanceRef.current = null;
+        candlestickSeriesRef.current = null;
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [cryptoData, zonesData]);
+  }, [cryptoData, zonesData, showVolumeProfile, volumeProfileData]);
 
   const isLocked = user.role === "free";
 
@@ -1137,13 +1432,33 @@ export default function CryptoDashboardPage() {
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
-                  {/* <div className="flex gap-1">
-                    {['Candles', 'Line', 'Area'].map((type) => (
-                      <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
-                        {type}
-                      </button>
-                    ))}
-                  </div> */}
+                  {/* Volume Profile Toggle */}
+                  <button
+                    onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+                    className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
+                      showVolumeProfile
+                        ? 'bg-accent/20 border-accent text-accent'
+                        : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
+                    }`}
+                    title="Toggle Volume Profile"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    VP
+                  </button>
+                  {/* Volume Profile Bins Selector (only show when VP is active) */}
+                  {showVolumeProfile && (
+                    <select
+                      className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                      value={volumeProfileNumBins}
+                      onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
+                      title="Number of bins"
+                    >
+                      <option value={25}>25 bins</option>
+                      <option value={50}>50 bins</option>
+                      <option value={75}>75 bins</option>
+                      <option value={100}>100 bins</option>
+                    </select>
+                  )}
                 </div>
                 {/* <div className="flex gap-2 items-center">
                   <div
