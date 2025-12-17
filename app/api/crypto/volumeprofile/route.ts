@@ -26,13 +26,12 @@ const pool = new Pool({
 });
 
 /**
- * GET /api/stocks/volumeprofile
+ * GET /api/crypto/volumeprofile
  *
- * Calculate volume profile for a stock symbol over a specified period.
- * Uses market hours data only (9:30 AM - 4:00 PM ET) from stocks.candles_* views.
+ * Calculate volume profile for a crypto symbol over a specified period.
  *
  * Query Parameters:
- * - symbol (required): Stock symbol (e.g., "AAPL")
+ * - symbol (required): Crypto symbol (e.g., "X:BTCUSD")
  * - start_date (optional): ISO date string (default: 30 days ago)
  * - end_date (optional): ISO date string (default: now)
  * - num_bins (optional): Number of price bins (default: 50)
@@ -67,13 +66,8 @@ export async function GET(request: Request) {
     );
   }
 
-  // Validate timeframe - stocks have different timeframes than crypto
-  const validTimeframes = [
-    '2m', '3m', '5m', '6m',
-    '10m', '13m', '15m', '26m',
-    '30m', '39m', '65m', '78m', '130m', '195m',
-    '1d', '5d', '22d', '65d'
-  ];
+  // Validate timeframe
+  const validTimeframes = ['5m', '15m', '30m', '1h', '2h', '4h', '8h', '1d', '7d', '31d', '93d'];
   if (!validTimeframes.includes(timeframe)) {
     return NextResponse.json(
       { success: false, error: `Invalid timeframe. Valid options: ${validTimeframes.join(', ')}` },
@@ -88,21 +82,20 @@ export async function GET(request: Request) {
     : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // Default: 30 days ago
 
   try {
-    // Query stock aggregates from the appropriate candles view
-    // Note: stocks.candles_* views already filter for market hours (9:30 AM - 4:00 PM ET)
+    // Query crypto aggregates from the appropriate candles view
     const query = `
       SELECT
-        sc.bucket,
-        sc.high,
-        sc.low,
-        sc.volume
-      FROM stocks.candles_${timeframe} sc
-      JOIN stocks.symbols ss ON sc.symbol_id = ss.id
+        mv.bucket,
+        mv.high,
+        mv.low,
+        mv.volume
+      FROM crypto.candles_${timeframe} mv
+      JOIN crypto.symbols s ON mv.symbol_id = s.id
       WHERE
-        ss.symbol = $1
-        AND sc.bucket >= $2
-        AND sc.bucket <= $3
-      ORDER BY sc.bucket ASC
+        s.symbol = $1
+        AND mv.bucket >= $2
+        AND mv.bucket <= $3
+      ORDER BY mv.bucket ASC
     `;
 
     const result = await pool.query(query, [symbol, startDate.toISOString(), endDate.toISOString()]);
@@ -130,7 +123,7 @@ export async function GET(request: Request) {
       volume: parseFloat(row.volume),
     }));
 
-    // Calculate volume profile on-the-fly
+    // Calculate volume profile
     const volumeProfile = calculateVolumeProfile(bars, numBins);
 
     return NextResponse.json({
