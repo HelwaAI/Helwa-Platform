@@ -1422,6 +1422,7 @@ export default function DashboardPage() {
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
+                  {/* commented for now */}
                   {/* <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
                       <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
