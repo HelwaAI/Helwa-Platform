@@ -50,7 +50,7 @@ export default function TopPerformers() {
   if (error || performers.length === 0) {
     return null; // Silently fail - don't show error on landing page
   }
-
+  // Showing Top 3 alerts.
   return (
     <section className="py-24 px-6 lg:px-8 bg-panel/20 border-y border-border/30">
       <div className="max-w-[1400px] mx-auto">
