@@ -532,6 +532,35 @@ export default function DashboardPage() {
       });
   }, []);
 
+  // Effect to read zoneId from URL parameters and automatically trigger zone search
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const zoneId = params.get('zoneId');
+    if (zoneId) {
+      // Populate the field
+      setZoneSearchQuery(zoneId);
+
+      // Automatically trigger the zone search
+      const performZoneSearch = async () => {
+        try {
+          // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+          await fetchStockDataWithZoneID(zoneId);
+
+          // Step 2: Set pending zone to snap to
+          pendingZoneSnapRef.current = zoneId;
+          console.log(`Auto-triggered zone search for ${zoneId}`);
+
+          // Step 3: Clear the search query
+          setZoneSearchQuery('');
+        } catch (error) {
+          console.error('Error auto-searching zone:', error);
+        }
+      };
+
+      performZoneSearch();
+    }
+  }, []);
+
   // Effect to refetch data when timeframe settings change
   useEffect(() => {
     if (searchQuery.trim()) {
