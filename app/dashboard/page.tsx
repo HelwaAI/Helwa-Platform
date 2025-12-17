@@ -184,180 +184,6 @@ class ZonePrimitive {
 }
 
 // ============================================================================
-// Volume Profile Primitive Classes - Renders horizontal volume bars on right side
-// These classes render volume profile bars that extend leftward from the right edge
-// ============================================================================
-
-interface VolumeProfileBar {
-  priceLevel: number;
-  volume: number;
-  normalizedWidth: number; // 0-1, where 1 is max volume
-}
-
-interface VolumeProfileOptions {
-  maxWidthPixels: number; // Maximum width of bars in pixels (e.g., 150)
-  barColor: string;
-  barOpacity: number;
-}
-
-// Renderer that draws volume profile bars
-class VolumeProfilePaneRenderer {
-  private _bars: VolumeProfileBar[];
-  private _options: VolumeProfileOptions;
-  private _priceToY: Map<number, number | null>;
-  private _chartWidth: number;
-
-  constructor(
-    bars: VolumeProfileBar[],
-    options: VolumeProfileOptions,
-    priceToY: Map<number, number | null>,
-    chartWidth: number
-  ) {
-    this._bars = bars;
-    this._options = options;
-    this._priceToY = priceToY;
-    this._chartWidth = chartWidth;
-  }
-
-  draw(target: any) {
-    target.useBitmapCoordinateSpace((scope: any) => {
-      const ctx = scope.context;
-      const pixelRatio = scope.horizontalPixelRatio;
-
-      // Calculate right edge of chart in pixel coordinates
-      const chartRightEdge = this._chartWidth * pixelRatio;
-
-      let drawnCount = 0;
-
-      // Draw each volume bar
-      this._bars.forEach((bar, index) => {
-        const yCoord = this._priceToY.get(bar.priceLevel);
-        if (yCoord === null || yCoord === undefined) {
-          console.log(`[VP Draw] Skipping bar ${index} - Y coord is null for price ${bar.priceLevel}`);
-          return;
-        }
-
-        const y = Math.round(yCoord * scope.verticalPixelRatio);
-        const barWidth = Math.round(bar.normalizedWidth * this._options.maxWidthPixels * pixelRatio);
-        const barHeight = 20 * scope.verticalPixelRatio; // Much taller bars for visibility
-        const x = chartRightEdge - barWidth; // Start from right edge, extend left
-
-        // Draw bar with border for better visibility
-        ctx.fillStyle = this._options.barColor;
-        ctx.globalAlpha = this._options.barOpacity;
-        ctx.fillRect(x, y - barHeight / 2, barWidth, barHeight);
-
-        // Add border
-        ctx.strokeStyle = '#F59E0B'; // Solid amber border
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 1.0;
-        ctx.strokeRect(x, y - barHeight / 2, barWidth, barHeight);
-
-        drawnCount++;
-
-        // Debug each bar
-        console.log(`[VP Draw] Bar ${index} - X: ${x}, Y: ${y}, Width: ${barWidth}, Height: ${barHeight}, Price: ${bar.priceLevel}, Normalized: ${bar.normalizedWidth.toFixed(3)}`);
-      });
-
-      if (drawnCount > 0) {
-        console.log('[VP Draw] Drew', drawnCount, 'volume bars');
-      }
-    });
-  }
-}
-
-// Pane view that manages coordinate conversion
-class VolumeProfilePaneView {
-  private _source: VolumeProfilePrimitive;
-  private _priceToY: Map<number, number | null> = new Map();
-  private _chartWidth: number = 0;
-
-  constructor(source: VolumeProfilePrimitive) {
-    this._source = source;
-  }
-
-  update() {
-    const series = this._source.series;
-    const chart = this._source.chart;
-    if (!series || !chart) return;
-
-    // Get chart width from options
-    const chartOptions = chart.options();
-    this._chartWidth = chartOptions.width || 800; // Default fallback
-
-    // Convert each price level to Y coordinate
-    this._priceToY.clear();
-    this._source.bars.forEach((bar) => {
-      const y = series.priceToCoordinate(bar.priceLevel);
-      this._priceToY.set(bar.priceLevel, y);
-    });
-
-    // Debug logging (first update only)
-    if (this._source.bars.length > 0 && this._chartWidth > 0) {
-      const firstBar = this._source.bars[0];
-      const firstY = this._priceToY.get(firstBar.priceLevel);
-      console.log('[VP Update] Chart width:', this._chartWidth, 'First bar Y:', firstY, 'Price:', firstBar.priceLevel);
-    }
-  }
-
-  renderer() {
-    return new VolumeProfilePaneRenderer(
-      this._source.bars,
-      this._source.options,
-      this._priceToY,
-      this._chartWidth
-    );
-  }
-}
-
-// Main primitive class for volume profile
-class VolumeProfilePrimitive {
-  private _chart: IChartApi | null = null;
-  private _series: ISeriesApi<SeriesType> | null = null;
-  private _paneViews: VolumeProfilePaneView[];
-  private _bars: VolumeProfileBar[];
-  private _options: VolumeProfileOptions;
-  private _requestUpdate?: () => void;
-
-  constructor(bars: VolumeProfileBar[], options: VolumeProfileOptions) {
-    this._bars = bars;
-    this._options = options;
-    this._paneViews = [new VolumeProfilePaneView(this)];
-  }
-
-  attached({ chart, series, requestUpdate }: any) {
-    this._chart = chart;
-    this._series = series;
-    this._requestUpdate = requestUpdate;
-  }
-
-  detached() {
-    this._chart = null;
-    this._series = null;
-    this._requestUpdate = undefined;
-  }
-
-  get chart() { return this._chart; }
-  get series() { return this._series; }
-  get bars() { return this._bars; }
-  get options() { return this._options; }
-
-  paneViews() {
-    return this._paneViews;
-  }
-
-  updateAllViews() {
-    this._paneViews.forEach(pv => pv.update());
-  }
-
-  requestUpdate() {
-    if (this._requestUpdate) {
-      this._requestUpdate();
-    }
-  }
-}
-
-// ============================================================================
 // Extended RectangleDrawingTool with snapping functionality
 // ============================================================================
 
@@ -445,6 +271,227 @@ class SnappingRectangleDrawingTool extends RectangleDrawingTool {
 }
 
 // ============================================================================
+// Volume Profile Types and Primitives
+// ============================================================================
+
+interface VolumeProfileNode {
+  price_level: number;
+  volume: number;
+  node_type: 'HVN' | 'LVN' | 'POC' | 'NORMAL';
+  bin_index: number;
+  price_range: [number, number];
+}
+
+interface VolumeProfileData {
+  nodes: VolumeProfileNode[];
+  hvn_nodes: VolumeProfileNode[];
+  lvn_nodes: VolumeProfileNode[];
+  poc_node: VolumeProfileNode | null;
+  hvn_threshold: number;
+  lvn_threshold: number;
+  total_volume: number;
+  price_range: [number, number];
+  bin_size: number;
+  poc_price: number | null;
+}
+
+// Volume Profile Renderer - draws horizontal bars on the right side of the chart
+class VolumeProfilePaneRenderer {
+  private _nodes: VolumeProfileNode[];
+  private _priceRange: [number, number];
+  private _maxVolume: number;
+  private _series: ISeriesApi<SeriesType> | null;
+  private _showPOC: boolean;
+  private _showHVN: boolean;
+  private _showLVN: boolean;
+
+  constructor(
+    nodes: VolumeProfileNode[],
+    priceRange: [number, number],
+    maxVolume: number,
+    series: ISeriesApi<SeriesType> | null,
+    showPOC: boolean = true,
+    showHVN: boolean = true,
+    showLVN: boolean = true
+  ) {
+    this._nodes = nodes;
+    this._priceRange = priceRange;
+    this._maxVolume = maxVolume;
+    this._series = series;
+    this._showPOC = showPOC;
+    this._showHVN = showHVN;
+    this._showLVN = showLVN;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      if (!this._series || this._nodes.length === 0) return;
+
+      const ctx = scope.context;
+      const chartWidth = scope.bitmapSize.width;
+      const maxBarWidth = chartWidth * 0.15; // Max 15% of chart width
+
+      // Draw each volume bar
+      for (const node of this._nodes) {
+        // Get Y coordinates for this price level
+        const topY = this._series.priceToCoordinate(node.price_range[1]);
+        const bottomY = this._series.priceToCoordinate(node.price_range[0]);
+
+        if (topY === null || bottomY === null) continue;
+
+        const y1 = Math.round(topY * scope.verticalPixelRatio);
+        const y2 = Math.round(bottomY * scope.verticalPixelRatio);
+        const height = Math.abs(y2 - y1);
+        const top = Math.min(y1, y2);
+
+        // Calculate bar width based on volume
+        const volumeRatio = node.volume / this._maxVolume;
+        const barWidth = volumeRatio * maxBarWidth;
+
+        // Position bar on the right side of the chart
+        const x = chartWidth - barWidth;
+
+        // Choose color based on node type
+        let fillColor = 'rgba(156, 163, 175, 0.4)'; // Default gray for NORMAL
+        let borderColor = 'rgba(156, 163, 175, 0.6)';
+
+        if (node.node_type === 'POC' && this._showPOC) {
+          fillColor = 'rgba(251, 191, 36, 0.6)'; // Yellow for POC
+          borderColor = 'rgba(251, 191, 36, 0.9)';
+        } else if (node.node_type === 'HVN' && this._showHVN) {
+          fillColor = 'rgba(239, 68, 68, 0.5)'; // Red for HVN
+          borderColor = 'rgba(239, 68, 68, 0.8)';
+        } else if (node.node_type === 'LVN' && this._showLVN) {
+          fillColor = 'rgba(139, 92, 246, 0.5)'; // Purple for LVN
+          borderColor = 'rgba(139, 92, 246, 0.8)';
+        }
+
+        // Draw the bar
+        ctx.fillStyle = fillColor;
+        ctx.fillRect(x, top, barWidth, Math.max(height, 2));
+
+        // Draw border
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, top, barWidth, Math.max(height, 2));
+      }
+
+      // Draw POC line across the entire chart
+      if (this._showPOC) {
+        const pocNode = this._nodes.find(n => n.node_type === 'POC');
+        if (pocNode) {
+          const pocY = this._series.priceToCoordinate(pocNode.price_level);
+          if (pocY !== null) {
+            const y = Math.round(pocY * scope.verticalPixelRatio);
+            ctx.strokeStyle = 'rgba(251, 191, 36, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(chartWidth, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw POC label
+            ctx.fillStyle = '#FBBF24';
+            ctx.font = `${10 * scope.verticalPixelRatio}px sans-serif`;
+            ctx.fillText('POC', 5, y - 3);
+          }
+        }
+      }
+    });
+  }
+}
+
+// Volume Profile Pane View
+class VolumeProfilePaneView {
+  private _source: VolumeProfilePrimitive;
+
+  constructor(source: VolumeProfilePrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    // Coordinates are calculated in renderer
+  }
+
+  renderer() {
+    const maxVolume = Math.max(...this._source.nodes.map(n => n.volume), 1);
+    return new VolumeProfilePaneRenderer(
+      this._source.nodes,
+      this._source.priceRange,
+      maxVolume,
+      this._source.series,
+      this._source.showPOC,
+      this._source.showHVN,
+      this._source.showLVN
+    );
+  }
+}
+
+// Volume Profile Primitive
+class VolumeProfilePrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: VolumeProfilePaneView[];
+  private _nodes: VolumeProfileNode[];
+  private _priceRange: [number, number];
+  private _showPOC: boolean;
+  private _showHVN: boolean;
+  private _showLVN: boolean;
+  private _requestUpdate?: () => void;
+
+  constructor(
+    nodes: VolumeProfileNode[],
+    priceRange: [number, number],
+    showPOC: boolean = true,
+    showHVN: boolean = true,
+    showLVN: boolean = true
+  ) {
+    this._nodes = nodes;
+    this._priceRange = priceRange;
+    this._showPOC = showPOC;
+    this._showHVN = showHVN;
+    this._showLVN = showLVN;
+    this._paneViews = [new VolumeProfilePaneView(this)];
+  }
+
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get nodes() { return this._nodes; }
+  get priceRange() { return this._priceRange; }
+  get showPOC() { return this._showPOC; }
+  get showHVN() { return this._showHVN; }
+  get showLVN() { return this._showLVN; }
+
+  paneViews() {
+    return this._paneViews;
+  }
+
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
 // Component Interfaces
 // ============================================================================
 
@@ -481,7 +528,9 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [stockData, setStockData] = useState<StockAggregate | null>(null);
   const [zonesData, setZonesData] = useState<any>(null);
-  const [volumeProfileData, setVolumeProfileData] = useState<any>(null);
+  const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
+  const [showVolumeProfile, setShowVolumeProfile] = useState(false);
+  const [volumeProfileNumBins, setVolumeProfileNumBins] = useState(50);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -567,6 +616,13 @@ export default function DashboardPage() {
       fetchStockData(searchQuery);
     }
   }, [timeframe, limit, hours]);
+
+  // Effect to fetch volume profile when enabled and symbol changes
+  useEffect(() => {
+    if (showVolumeProfile && searchQuery.trim()) {
+      fetchVolumeProfile(searchQuery, volumeProfileNumBins);
+    }
+  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe]);
 
   // Fetch stock data based on symbol
   const fetchStockData = async (
@@ -762,6 +818,38 @@ export default function DashboardPage() {
         setStockData(null);
         setError(null);
       }
+    }
+  };
+
+  // Fetch volume profile data independently
+  const fetchVolumeProfile = async (symbol: string, numBins: number = 50) => {
+    if (!symbol.trim()) {
+      setVolumeProfileData(null);
+      return;
+    }
+
+    try {
+      // Calculate date range based on current timeframe
+      const endDate = new Date();
+      const startDate = new Date();
+      // Use 30 days for volume profile by default
+      startDate.setDate(startDate.getDate() - 30);
+
+      const response = await fetch(
+        `/api/stocks/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
+      );
+      const data = await response.json();
+
+      if (data.success && data.data) {
+        console.log("Volume Profile Data: ", data.data);
+        setVolumeProfileData(data.data);
+      } else {
+        console.log("No volume profile data available");
+        setVolumeProfileData(null);
+      }
+    } catch (err) {
+      console.error("Error fetching volume profile:", err);
+      setVolumeProfileData(null);
     }
   };
 
@@ -1027,40 +1115,18 @@ export default function DashboardPage() {
         });
       }
 
-      // Create volume profile primitive if data is available
-      if (volumeProfileData && volumeProfileData.length > 0) {
-        try {
-          console.log('[VP] Raw volume profile data:', volumeProfileData);
-
-          // Find max volume for normalization
-          const maxVolume = Math.max(...volumeProfileData.map((item: any) => item.volume));
-
-          // Normalize volume data and create bars
-          const volumeBars: VolumeProfileBar[] = volumeProfileData.map((item: any) => ({
-            priceLevel: item.price_level,
-            volume: item.volume,
-            normalizedWidth: item.volume / maxVolume // 0-1 range
-          }));
-
-          console.log('[VP] Normalized bars:', volumeBars);
-          console.log('[VP] Max volume:', maxVolume);
-          console.log('[VP] Price range:', Math.min(...volumeBars.map(b => b.priceLevel)), '-', Math.max(...volumeBars.map(b => b.priceLevel)));
-
-          // Create volume profile primitive
-          const volumeProfilePrimitive = new VolumeProfilePrimitive(volumeBars, {
-            maxWidthPixels: 150, // Maximum bar width in pixels
-            barColor: 'rgba(245, 158, 11, 0.9)', // Amber color from theme - increased opacity
-            barOpacity: 0.9
-          });
-
-          // Attach to series
-          candlestickSeries.attachPrimitive(volumeProfilePrimitive);
-          volumeProfilePrimitiveRef.current = volumeProfilePrimitive;
-
-          console.log(`[VP] Volume profile primitive created and attached: ${volumeBars.length} bars`);
-        } catch (err) {
-          console.error('[VP] Error creating volume profile primitive:', err);
-        }
+      // Add volume profile primitive if enabled and data is available
+      if (showVolumeProfile && volumeProfileData && volumeProfileData.nodes && volumeProfileData.nodes.length > 0) {
+        const volumeProfilePrimitive = new VolumeProfilePrimitive(
+          volumeProfileData.nodes,
+          volumeProfileData.price_range,
+          true, // showPOC
+          true, // showHVN
+          true  // showLVN
+        );
+        candlestickSeries.attachPrimitive(volumeProfilePrimitive);
+        volumeProfilePrimitiveRef.current = volumeProfilePrimitive;
+        console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
       }
 
       // Add crosshair move handler for zone tooltips
@@ -1182,7 +1248,7 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [stockData, zonesData, volumeProfileData]);
+  }, [stockData, zonesData, showVolumeProfile, volumeProfileData]);
 
   const isLocked = user.role === "free";
 
@@ -1334,12 +1400,41 @@ export default function DashboardPage() {
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
                   </div>
-                  <div className="flex gap-1">
+                  {/* <div className="flex gap-1">
                     {['Candles', 'Line', 'Area'].map((type) => (
                       <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
                         {type}
                       </button>
                     ))}
+                  </div> */}
+                  <div className="flex gap-2 items-center">
+                    {/* Volume Profile Toggle */}
+                    <button
+                      onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+                      className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
+                        showVolumeProfile
+                          ? 'bg-accent/20 border-accent text-accent'
+                          : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
+                      }`}
+                      title="Toggle Volume Profile"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                      VP
+                    </button>
+                    {/* Volume Profile Bins Selector (only show when VP is active) */}
+                    {showVolumeProfile && (
+                      <select
+                        className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                        value={volumeProfileNumBins}
+                        onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
+                        title="Number of bins"
+                      >
+                        <option value={25}>25 bins</option>
+                        <option value={50}>50 bins</option>
+                        <option value={75}>75 bins</option>
+                        <option value={100}>100 bins</option>
+                      </select>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2 items-center">
