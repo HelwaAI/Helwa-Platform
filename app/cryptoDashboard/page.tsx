@@ -571,6 +571,9 @@ export default function CryptoDashboardPage() {
   const [volumeProfileEndDate, setVolumeProfileEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0]; // Format as YYYY-MM-DD
   });
+  // Volume Profile Time State - default 14:30 UTC (market open)
+  const [volumeProfileStartTime, setVolumeProfileStartTime] = useState("14:30");
+  const [volumeProfileEndTime, setVolumeProfileEndTime] = useState("14:30");
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
@@ -705,9 +708,17 @@ export default function CryptoDashboardPage() {
         return;
       }
 
-      // Set times to ensure full day coverage
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      // Parse time strings (HH:MM format) and set on dates
+      const [startHours, startMinutes] = volumeProfileStartTime.split(':').map(Number);
+      const [endHours, endMinutes] = volumeProfileEndTime.split(':').map(Number);
+
+      console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
+
+      // Set times from the time inputs (these are interpreted as UTC times)
+      startDate.setUTCHours(startHours, startMinutes, 0, 0);
+      endDate.setUTCHours(endHours, endMinutes, 59, 999);
+
+      console.log(`[VP] Fetching volume profile: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       const response = await fetch(
         `/api/crypto/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
@@ -732,7 +743,7 @@ export default function CryptoDashboardPage() {
     if (showVolumeProfile && searchQuery.trim()) {
       fetchVolumeProfile(searchQuery, volumeProfileNumBins);
     }
-  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe, volumeProfileStartDate, volumeProfileEndDate]);
+  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe, volumeProfileStartDate, volumeProfileEndDate, volumeProfileStartTime, volumeProfileEndTime]);
 
   // fetch crypto data based on zone_id
   const fetchCryptoDataWithZoneID = async (zoneId: string) => {
@@ -1467,9 +1478,9 @@ export default function CryptoDashboardPage() {
                     <BarChart3 className="h-4 w-4" />
                     VP
                   </button>
-                  {/* Volume Profile Bins Selector (only show when VP is active) */}
+                  {/* Volume Profile Controls (only show when VP is active) */}
                   {showVolumeProfile && (
-                    <>
+                    <div className="flex items-center gap-2 flex-wrap">
                       <select
                         className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
                         value={volumeProfileNumBins}
@@ -1481,29 +1492,44 @@ export default function CryptoDashboardPage() {
                         <option value={75}>75 bins</option>
                         <option value={100}>100 bins</option>
                       </select>
-                      {/* Start Date */}
+                      {/* Start Date and Time */}
                       <div className="flex items-center gap-1">
                         <label className="text-xs text-secondary whitespace-nowrap">From:</label>
                         <input
                           type="date"
-                          className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
                           value={volumeProfileStartDate}
                           onChange={(e) => setVolumeProfileStartDate(e.target.value)}
                           title="Start date for volume profile"
                         />
+                        <input
+                          type="time"
+                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                          value={volumeProfileStartTime}
+                          onChange={(e) => setVolumeProfileStartTime(e.target.value)}
+                          title="Start time (UTC)"
+                        />
                       </div>
-                      {/* End Date */}
+                      {/* End Date and Time */}
                       <div className="flex items-center gap-1">
                         <label className="text-xs text-secondary whitespace-nowrap">To:</label>
                         <input
                           type="date"
-                          className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
                           value={volumeProfileEndDate}
                           onChange={(e) => setVolumeProfileEndDate(e.target.value)}
                           title="End date for volume profile"
                         />
+                        <input
+                          type="time"
+                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                          value={volumeProfileEndTime}
+                          onChange={(e) => setVolumeProfileEndTime(e.target.value)}
+                          title="End time (UTC)"
+                        />
                       </div>
-                    </>
+                      <span className="text-xs text-accent font-medium">(UTC)</span>
+                    </div>
                   )}
                 </div>
                 {/* <div className="flex gap-2 items-center">

@@ -521,11 +521,73 @@ interface StockAggregate {
   last_updated: string;
 }
 
+// Tab type definition
+type DashboardTab = 'charts' | 'trades' | 'strategy' | 'portfolio' | 'alerts';
+
+// Trades data interface
+interface Trade {
+  alertId: number;
+  symbol: string;
+  zoneType: string;
+  zoneId: number;
+  entryPrice: number;
+  stopLoss: number;
+  targetPrice: number;
+  alertedAt: string;
+  retestDate: string | null;
+  retestPrice: number | null;
+  close5d: number | null;
+  adjustedReturn: number | null;
+  outcome: 'WIN' | 'LOSS' | 'PENDING';
+}
+
+// Portfolio data interface
+interface PortfolioData {
+  performance: {
+    totalReturn: string;
+    sharpeRatio: string;
+    informationRatio: string;
+    maxDrawdown: string;
+    winRate: string;
+    avgReturn: string;
+    totalTrades: number;
+    wins: number;
+    losses: number;
+  };
+  byZoneType: {
+    demand: { trades: number; wins: number; winRate: string; totalReturn: string; avgReturn: string };
+    supply: { trades: number; wins: number; winRate: string; totalReturn: string; avgReturn: string };
+  };
+  equityCurve: Array<{ date: string; cumulative: string }>;
+}
+
+// Strategy data interface
+interface StrategyData {
+  zoneStats: Record<string, any>;
+  kellyParams: Record<string, any>;
+  imbalance: Array<{ symbol: string; demandZones: number; supplyZones: number; imbalance: number; bias: string }>;
+  summary: {
+    totalDemandZones: number;
+    totalSupplyZones: number;
+    freshDemandZones: number;
+    freshSupplyZones: number;
+    demandWinRate: string;
+    supplyWinRate: string;
+    demandKelly: string;
+    supplyKelly: string;
+  };
+}
+
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user-admin@helwa.ai", role: "admin" });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<DashboardTab>('charts');
+  const [tradesData, setTradesData] = useState<{ trades: Trade[]; summary: any } | null>(null);
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
+  const [strategyData, setStrategyData] = useState<StrategyData | null>(null);
+  const [tabLoading, setTabLoading] = useState(false);
   const [stockData, setStockData] = useState<StockAggregate | null>(null);
   const [zonesData, setZonesData] = useState<any>(null);
   const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
@@ -539,6 +601,9 @@ export default function DashboardPage() {
   const [volumeProfileEndDate, setVolumeProfileEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0]; // Format as YYYY-MM-DD
   });
+  // Volume Profile Time State - default 09:30 ET for market open (14:30 UTC)
+  const [volumeProfileStartTime, setVolumeProfileStartTime] = useState("09:30");
+  const [volumeProfileEndTime, setVolumeProfileEndTime] = useState("16:00");
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -630,7 +695,66 @@ export default function DashboardPage() {
     if (showVolumeProfile && searchQuery.trim()) {
       fetchVolumeProfile(searchQuery, volumeProfileNumBins);
     }
-  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe, volumeProfileStartDate, volumeProfileEndDate]);
+  }, [showVolumeProfile, searchQuery, volumeProfileNumBins, timeframe, volumeProfileStartDate, volumeProfileEndDate, volumeProfileStartTime, volumeProfileEndTime]);
+
+  // Effect to fetch tab data when tab changes
+  useEffect(() => {
+    if (activeTab === 'trades' && !tradesData) {
+      fetchTradesData();
+    } else if (activeTab === 'portfolio' && !portfolioData) {
+      fetchPortfolioData();
+    } else if (activeTab === 'strategy' && !strategyData) {
+      fetchStrategyData();
+    }
+  }, [activeTab]);
+
+  // Fetch trades data
+  const fetchTradesData = async () => {
+    try {
+      setTabLoading(true);
+      const response = await fetch('/api/stocks/trades?limit=100');
+      const data = await response.json();
+      if (data.success) {
+        setTradesData(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching trades:', err);
+    } finally {
+      setTabLoading(false);
+    }
+  };
+
+  // Fetch portfolio data
+  const fetchPortfolioData = async () => {
+    try {
+      setTabLoading(true);
+      const response = await fetch('/api/stocks/portfolio');
+      const data = await response.json();
+      if (data.success) {
+        setPortfolioData(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching portfolio:', err);
+    } finally {
+      setTabLoading(false);
+    }
+  };
+
+  // Fetch strategy data
+  const fetchStrategyData = async () => {
+    try {
+      setTabLoading(true);
+      const response = await fetch('/api/stocks/strategy');
+      const data = await response.json();
+      if (data.success) {
+        setStrategyData(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching strategy:', err);
+    } finally {
+      setTabLoading(false);
+    }
+  };
 
   // Fetch stock data based on symbol
   const fetchStockData = async (
@@ -853,9 +977,17 @@ export default function DashboardPage() {
         return;
       }
 
-      // Set times to ensure full day coverage
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      // Parse time strings (HH:MM format) and set on dates
+      const [startHours, startMinutes] = volumeProfileStartTime.split(':').map(Number);
+      const [endHours, endMinutes] = volumeProfileEndTime.split(':').map(Number);
+
+      console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
+
+      // Set times from the time inputs (these are interpreted as ET times for stocks)
+      startDate.setHours(startHours, startMinutes, 0, 0);
+      endDate.setHours(endHours, endMinutes, 59, 999);
+
+      console.log(`[VP] Fetching volume profile: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       const response = await fetch(
         `/api/stocks/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
@@ -1285,16 +1417,16 @@ export default function DashboardPage() {
 
         {/* Nav icons */}
         {[
-          { icon: Home, label: "Dashboard", active: true },
-          { icon: LineChart, label: "Charts" },
-          { icon: TrendingUp, label: "Trades" },
-          { icon: Target, label: "Strategies" },
-          { icon: PieChart, label: "Portfolio" },
-          { icon: Bell, label: "Alerts" },
+          { icon: LineChart, label: "Charts", tab: 'charts' as DashboardTab },
+          { icon: TrendingUp, label: "Trades", tab: 'trades' as DashboardTab },
+          { icon: Target, label: "Strategy", tab: 'strategy' as DashboardTab },
+          { icon: PieChart, label: "Portfolio", tab: 'portfolio' as DashboardTab },
+          { icon: Bell, label: "Alerts", tab: 'alerts' as DashboardTab },
         ].map((item, i) => (
           <button
             key={i}
-            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${item.active
+            onClick={() => setActiveTab(item.tab)}
+            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${activeTab === item.tab
               ? 'bg-accent/10 text-accent'
               : 'text-secondary hover:bg-elevated hover:text-primary'
               }`}
@@ -1366,8 +1498,339 @@ export default function DashboardPage() {
 
         {/* Main Dashboard Grid */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Center: Chart and Stats Area */}
-          <div className="flex-1 flex flex-col">
+          {/* Center: Tab Content Area */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+
+            {/* TRADES TAB */}
+            {activeTab === 'trades' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Trade History</h2>
+                    <p className="text-sm text-secondary">Zone alerts and their outcomes</p>
+                  </div>
+                  {tabLoading ? (
+                    <div className="p-8 text-center text-secondary">Loading trades...</div>
+                  ) : tradesData ? (
+                    <>
+                      {/* Summary Stats */}
+                      <div className="p-4 grid grid-cols-5 gap-4 border-b border-border">
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Total Trades</div>
+                          <div className="text-xl font-bold text-primary">{tradesData.summary.totalTrades}</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Win Rate</div>
+                          <div className="text-xl font-bold text-success">{tradesData.summary.winRate}%</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Wins / Losses</div>
+                          <div className="text-xl font-bold">
+                            <span className="text-success">{tradesData.summary.wins}</span>
+                            <span className="text-secondary"> / </span>
+                            <span className="text-red-500">{tradesData.summary.losses}</span>
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Total Return</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.totalReturn) >= 0 ? '+' : ''}{tradesData.summary.totalReturn}%
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg Return</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgReturn}%
+                          </div>
+                        </div>
+                      </div>
+                      {/* Trades Table */}
+                      <div className="overflow-auto max-h-[600px]">
+                        <table className="w-full text-sm">
+                          <thead className="bg-elevated sticky top-0">
+                            <tr className="text-left text-secondary">
+                              <th className="p-3">Symbol</th>
+                              <th className="p-3">Type</th>
+                              <th className="p-3">Entry</th>
+                              <th className="p-3">Stop</th>
+                              <th className="p-3">Target</th>
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Return</th>
+                              <th className="p-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tradesData.trades.map((trade: Trade) => (
+                              <tr key={trade.alertId} className="border-t border-border hover:bg-elevated/50">
+                                <td className="p-3 font-medium text-primary">{trade.symbol}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-1 rounded text-xs ${trade.zoneType === 'demand' ? 'bg-success/20 text-success' : 'bg-red-500/20 text-red-400'}`}>
+                                    {trade.zoneType.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-primary">${trade.entryPrice?.toFixed(2)}</td>
+                                <td className="p-3 text-red-400">${trade.stopLoss?.toFixed(2)}</td>
+                                <td className="p-3 text-success">${trade.targetPrice?.toFixed(2)}</td>
+                                <td className="p-3 text-secondary">{new Date(trade.alertedAt).toLocaleDateString()}</td>
+                                <td className={`p-3 font-medium ${trade.adjustedReturn && trade.adjustedReturn >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                  {trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-'}
+                                </td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-1 rounded text-xs ${
+                                    trade.outcome === 'WIN' ? 'bg-success/20 text-success' :
+                                    trade.outcome === 'LOSS' ? 'bg-red-500/20 text-red-400' :
+                                    'bg-yellow-500/20 text-yellow-400'
+                                  }`}>
+                                    {trade.outcome}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-8 text-center text-secondary">No trades data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PORTFOLIO TAB */}
+            {activeTab === 'portfolio' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Portfolio Performance</h2>
+                    <p className="text-sm text-secondary">Returns, risk metrics, and equity curve</p>
+                  </div>
+                  {tabLoading ? (
+                    <div className="p-8 text-center text-secondary">Loading portfolio data...</div>
+                  ) : portfolioData ? (
+                    <>
+                      {/* Performance Metrics */}
+                      <div className="p-4 grid grid-cols-4 gap-4 border-b border-border">
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary mb-1">Total Return</div>
+                          <div className={`text-2xl font-bold ${parseFloat(portfolioData.performance.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(portfolioData.performance.totalReturn) >= 0 ? '+' : ''}{portfolioData.performance.totalReturn}%
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary mb-1">Sharpe Ratio</div>
+                          <div className={`text-2xl font-bold ${parseFloat(portfolioData.performance.sharpeRatio) >= 1 ? 'text-success' : parseFloat(portfolioData.performance.sharpeRatio) >= 0 ? 'text-accent' : 'text-red-500'}`}>
+                            {portfolioData.performance.sharpeRatio}
+                          </div>
+                          <div className="text-xs text-secondary mt-1">Risk-adjusted return</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary mb-1">Information Ratio</div>
+                          <div className={`text-2xl font-bold ${parseFloat(portfolioData.performance.informationRatio) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {portfolioData.performance.informationRatio}
+                          </div>
+                          <div className="text-xs text-secondary mt-1">vs S&P 500 benchmark</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary mb-1">Max Drawdown</div>
+                          <div className="text-2xl font-bold text-red-500">
+                            -{portfolioData.performance.maxDrawdown}%
+                          </div>
+                          <div className="text-xs text-secondary mt-1">Peak to trough</div>
+                        </div>
+                      </div>
+
+                      {/* Zone Type Breakdown */}
+                      <div className="p-4 grid grid-cols-2 gap-4 border-b border-border">
+                        <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+                          <h3 className="text-sm font-bold text-success mb-2">Demand Zones (Long)</h3>
+                          <div className="grid grid-cols-3 gap-2 text-sm">
+                            <div>
+                              <div className="text-xs text-secondary">Trades</div>
+                              <div className="font-bold text-primary">{portfolioData.byZoneType.demand.trades}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-secondary">Win Rate</div>
+                              <div className="font-bold text-success">{portfolioData.byZoneType.demand.winRate}%</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-secondary">Avg Return</div>
+                              <div className="font-bold text-primary">{portfolioData.byZoneType.demand.avgReturn}%</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                          <h3 className="text-sm font-bold text-red-400 mb-2">Supply Zones (Short)</h3>
+                          <div className="grid grid-cols-3 gap-2 text-sm">
+                            <div>
+                              <div className="text-xs text-secondary">Trades</div>
+                              <div className="font-bold text-primary">{portfolioData.byZoneType.supply.trades}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-secondary">Win Rate</div>
+                              <div className="font-bold text-red-400">{portfolioData.byZoneType.supply.winRate}%</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-secondary">Avg Return</div>
+                              <div className="font-bold text-primary">{portfolioData.byZoneType.supply.avgReturn}%</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Trade Stats */}
+                      <div className="p-4 grid grid-cols-4 gap-4">
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Win Rate</div>
+                          <div className="text-xl font-bold text-success">{portfolioData.performance.winRate}%</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Total Trades</div>
+                          <div className="text-xl font-bold text-primary">{portfolioData.performance.totalTrades}</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Wins</div>
+                          <div className="text-xl font-bold text-success">{portfolioData.performance.wins}</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Losses</div>
+                          <div className="text-xl font-bold text-red-500">{portfolioData.performance.losses}</div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-8 text-center text-secondary">No portfolio data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* STRATEGY TAB */}
+            {activeTab === 'strategy' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Strategy Overview</h2>
+                    <p className="text-sm text-secondary">Supply/Demand zone statistics and Kelly parameters</p>
+                  </div>
+                  {tabLoading ? (
+                    <div className="p-8 text-center text-secondary">Loading strategy data...</div>
+                  ) : strategyData ? (
+                    <>
+                      {/* Summary Cards */}
+                      <div className="p-4 grid grid-cols-4 gap-4 border-b border-border">
+                        <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+                          <div className="text-xs text-secondary">Demand Zones</div>
+                          <div className="text-2xl font-bold text-success">{strategyData.summary.totalDemandZones}</div>
+                          <div className="text-xs text-success mt-1">{strategyData.summary.freshDemandZones} fresh</div>
+                        </div>
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                          <div className="text-xs text-secondary">Supply Zones</div>
+                          <div className="text-2xl font-bold text-red-400">{strategyData.summary.totalSupplyZones}</div>
+                          <div className="text-xs text-red-400 mt-1">{strategyData.summary.freshSupplyZones} fresh</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary">Demand Win Rate</div>
+                          <div className="text-2xl font-bold text-success">{strategyData.summary.demandWinRate}%</div>
+                          <div className="text-xs text-secondary mt-1">Kelly: {strategyData.summary.demandKelly}%</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary">Supply Win Rate</div>
+                          <div className="text-2xl font-bold text-red-400">{strategyData.summary.supplyWinRate}%</div>
+                          <div className="text-xs text-secondary mt-1">Kelly: {strategyData.summary.supplyKelly}%</div>
+                        </div>
+                      </div>
+
+                      {/* Kelly Parameters */}
+                      <div className="p-4 border-b border-border">
+                        <h3 className="text-sm font-bold text-primary mb-3">Kelly Position Sizing Parameters</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          {strategyData.kellyParams.demand && (
+                            <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+                              <h4 className="text-sm font-bold text-success mb-2">Demand (Long)</h4>
+                              <div className="grid grid-cols-4 gap-2 text-sm">
+                                <div><div className="text-xs text-secondary">Trades</div><div className="font-bold">{strategyData.kellyParams.demand.numTrades}</div></div>
+                                <div><div className="text-xs text-secondary">Win Rate</div><div className="font-bold">{strategyData.kellyParams.demand.winRate}%</div></div>
+                                <div><div className="text-xs text-secondary">Avg Win R</div><div className="font-bold text-success">{strategyData.kellyParams.demand.avgWinR}R</div></div>
+                                <div><div className="text-xs text-secondary">Half-Kelly</div><div className="font-bold text-accent">{strategyData.kellyParams.demand.halfKelly}%</div></div>
+                              </div>
+                            </div>
+                          )}
+                          {strategyData.kellyParams.supply && (
+                            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                              <h4 className="text-sm font-bold text-red-400 mb-2">Supply (Short)</h4>
+                              <div className="grid grid-cols-4 gap-2 text-sm">
+                                <div><div className="text-xs text-secondary">Trades</div><div className="font-bold">{strategyData.kellyParams.supply.numTrades}</div></div>
+                                <div><div className="text-xs text-secondary">Win Rate</div><div className="font-bold">{strategyData.kellyParams.supply.winRate}%</div></div>
+                                <div><div className="text-xs text-secondary">Avg Win R</div><div className="font-bold text-success">{strategyData.kellyParams.supply.avgWinR}R</div></div>
+                                <div><div className="text-xs text-secondary">Half-Kelly</div><div className="font-bold text-accent">{strategyData.kellyParams.supply.halfKelly}%</div></div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Supply/Demand Imbalance Table */}
+                      <div className="p-4">
+                        <h3 className="text-sm font-bold text-primary mb-3">Supply/Demand Imbalance by Symbol</h3>
+                        <div className="overflow-auto max-h-[300px]">
+                          <table className="w-full text-sm">
+                            <thead className="bg-elevated sticky top-0">
+                              <tr className="text-left text-secondary">
+                                <th className="p-3">Symbol</th>
+                                <th className="p-3">Demand Zones</th>
+                                <th className="p-3">Supply Zones</th>
+                                <th className="p-3">Imbalance</th>
+                                <th className="p-3">Bias</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {strategyData.imbalance.map((item: any) => (
+                                <tr key={item.symbol} className="border-t border-border hover:bg-elevated/50">
+                                  <td className="p-3 font-medium text-primary">{item.symbol}</td>
+                                  <td className="p-3 text-success">{item.demandZones}</td>
+                                  <td className="p-3 text-red-400">{item.supplyZones}</td>
+                                  <td className={`p-3 font-bold ${item.imbalance > 0 ? 'text-success' : item.imbalance < 0 ? 'text-red-500' : 'text-secondary'}`}>
+                                    {item.imbalance > 0 ? '+' : ''}{item.imbalance}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                      item.bias === 'BULLISH' ? 'bg-success/20 text-success' :
+                                      item.bias === 'BEARISH' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-gray-500/20 text-gray-400'
+                                    }`}>
+                                      {item.bias}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-8 text-center text-secondary">No strategy data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ALERTS TAB */}
+            {activeTab === 'alerts' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg p-8 text-center">
+                  <Bell className="h-12 w-12 text-secondary mx-auto mb-4" />
+                  <h2 className="text-lg font-bold text-primary mb-2">Alerts</h2>
+                  <p className="text-sm text-secondary">Real-time zone alerts will appear here.</p>
+                  <p className="text-xs text-secondary mt-2">Coming soon...</p>
+                </div>
+              </div>
+            )}
+
+            {/* CHARTS TAB - Original Chart Content */}
+            {activeTab === 'charts' && (
+            <>
             {/* Chart Container */}
             <div className="flex-1 p-4 pb-2">
               <div className="h-full bg-panel border border-border rounded-lg flex flex-col">
@@ -1458,28 +1921,43 @@ export default function DashboardPage() {
                           <option value={75}>75 bins</option>
                           <option value={100}>100 bins</option>
                         </select>
-                        {/* Start Date */}
+                        {/* Start Date and Time */}
                         <div className="flex items-center gap-1">
                           <label className="text-xs text-secondary whitespace-nowrap">From:</label>
                           <input
                             type="date"
-                            className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
                             value={volumeProfileStartDate}
                             onChange={(e) => setVolumeProfileStartDate(e.target.value)}
                             title="Start date for volume profile"
                           />
+                          <input
+                            type="time"
+                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                            value={volumeProfileStartTime}
+                            onChange={(e) => setVolumeProfileStartTime(e.target.value)}
+                            title="Start time (ET)"
+                          />
                         </div>
-                        {/* End Date */}
+                        {/* End Date and Time */}
                         <div className="flex items-center gap-1">
                           <label className="text-xs text-secondary whitespace-nowrap">To:</label>
                           <input
                             type="date"
-                            className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
                             value={volumeProfileEndDate}
                             onChange={(e) => setVolumeProfileEndDate(e.target.value)}
                             title="End date for volume profile"
                           />
+                          <input
+                            type="time"
+                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                            value={volumeProfileEndTime}
+                            onChange={(e) => setVolumeProfileEndTime(e.target.value)}
+                            title="End time (ET)"
+                          />
                         </div>
+                        <span className="text-xs text-accent font-medium">(ET)</span>
                       </>
                     )}
                   </div>
@@ -1584,6 +2062,8 @@ export default function DashboardPage() {
               )}
               </div>
             </div>
+          </>
+          )}
           </div>
 
           {/* Right: AI Chat Panel */}
