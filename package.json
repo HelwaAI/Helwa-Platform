@@ -29,6 +29,7 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/pg": "^8.15.6",
     "dotenv": "^17.2.3"
   }
