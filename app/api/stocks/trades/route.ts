@@ -23,53 +23,46 @@ const pool = new Pool({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol');
-  const limit = parseInt(searchParams.get('limit') || '100');
+  const limit = parseInt(searchParams.get('limit') || '5000');
   const offset = parseInt(searchParams.get('offset') || '0');
   const status = searchParams.get('status'); // 'open', 'closed', 'all'
 
   try {
-    // Query to get trades from zone_alerts with retest outcomes
+    // Query to get trades from historical_trades table
     let query = `
     SELECT
-        za.id as alert_id,
-        s.symbol,
-        z.zone_type,
-        za.entry_price,
-        za.stop_loss,
-        za.target_price,
-        za.alert_time,
-        za.alerted_at,
-        z.zone_id,
-        z.top_price as zone_top,
-        z.bottom_price as zone_bottom,
-        z.start_time as zone_start,
-        zfr.bounce_day as retest_date,
-        zfr.bounce_close as retest_price,
-        zfr.close_5d,
-        zfr.return_5d,
-        CASE
-            WHEN z.zone_type = 'demand' THEN
-                CASE
-                    WHEN zfr.return_5d > 0 THEN 'WIN'
-                    WHEN zfr.return_5d < 0 THEN 'LOSS'
-                    ELSE 'PENDING'
-                END
-            ELSE
-                CASE
-                    WHEN zfr.return_5d < 0 THEN 'WIN'
-                    WHEN zfr.return_5d > 0 THEN 'LOSS'
-                    ELSE 'PENDING'
-                END
-        END as outcome,
-        CASE
-            WHEN z.zone_type = 'demand' THEN zfr.return_5d
-            ELSE -zfr.return_5d
-        END as adjusted_return
-    FROM stocks.zone_alerts za
-    JOIN stocks.zones z ON za.zone_id = z.zone_id
-    JOIN stocks.symbols s ON s.id = za.symbol_id
-    LEFT JOIN stocks.zone_first_retests_cache zfr ON z.zone_id = zfr.zone_id
-    WHERE za.alerted_at IS NOT NULL
+        ht.trade_id,
+        ht.symbol,
+        ht.zone_type,
+        ht.zone_id,
+        ht.zone_bottom,
+        ht.zone_top,
+        ht.zone_height,
+        ht.entry_time,
+        ht.entry_price,
+        ht.entry_candle_open,
+        ht.stop_price,
+        ht.target_price,
+        ht.target_type,
+        ht.target_hvn_percentile,
+        ht.risk_amount,
+        ht.reward_amount,
+        ht.risk_reward_ratio,
+        ht.outcome,
+        ht.exit_time,
+        ht.exit_price,
+        ht.exit_reason,
+        ht.minutes_to_exit,
+        ht.trading_days_to_exit,
+        ht.candles_to_exit,
+        ht.pnl_points,
+        ht.pnl_percent,
+        ht.r_multiple,
+        ht.discord_alerted,
+        tf.label as timeframe
+    FROM stocks.historical_trades ht
+    LEFT JOIN stocks.timeframes tf ON ht.timeframe_id = tf.id
+    WHERE 1=1
     `;
 
     const params: any[] = [];
@@ -77,20 +70,20 @@ export async function GET(request: Request) {
 
     // Filter by symbol if provided
     if (symbol) {
-      query += ` AND s.symbol = $${paramIndex}`;
+      query += ` AND ht.symbol = $${paramIndex}`;
       params.push(symbol);
       paramIndex++;
     }
 
     // Filter by status if provided
     if (status === 'open') {
-      query += ` AND zfr.close_5d IS NULL`;
+      query += ` AND ht.outcome IS NULL`;
     } else if (status === 'closed') {
-      query += ` AND zfr.close_5d IS NOT NULL`;
+      query += ` AND ht.outcome IS NOT NULL`;
     }
 
     // Order by most recent first
-    query += ` ORDER BY za.alerted_at DESC`;
+    query += ` ORDER BY ht.entry_time DESC`;
 
     // Add pagination
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
@@ -100,39 +93,67 @@ export async function GET(request: Request) {
 
     // Calculate summary statistics
     const trades = result.rows;
-    const closedTrades = trades.filter((t: any) => t.outcome !== 'PENDING');
+    const closedTrades = trades.filter((t: any) => t.outcome !== null);
     const wins = closedTrades.filter((t: any) => t.outcome === 'WIN').length;
     const losses = closedTrades.filter((t: any) => t.outcome === 'LOSS').length;
+    const breakevens = closedTrades.filter((t: any) => t.outcome === 'BREAKEVEN').length;
     const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
 
-    const totalReturn = closedTrades.reduce((sum: number, t: any) => {
-      return sum + (parseFloat(t.adjusted_return) || 0);
+    const totalPnlPercent = closedTrades.reduce((sum: number, t: any) => {
+      return sum + (parseFloat(t.pnl_percent) || 0);
     }, 0);
 
-    const avgReturn = closedTrades.length > 0 ? totalReturn / closedTrades.length : 0;
+    const totalRMultiple = closedTrades.reduce((sum: number, t: any) => {
+      return sum + (parseFloat(t.r_multiple) || 0);
+    }, 0);
+
+    const avgPnlPercent = closedTrades.length > 0 ? totalPnlPercent / closedTrades.length : 0;
+    const avgRMultiple = closedTrades.length > 0 ? totalRMultiple / closedTrades.length : 0;
 
     return NextResponse.json({
       success: true,
       data: {
         trades: trades.map((row: any) => ({
-          alertId: row.alert_id,
+          tradeId: row.trade_id,
           symbol: row.symbol,
           zoneType: row.zone_type,
           zoneId: row.zone_id,
-          entryPrice: parseFloat(row.entry_price),
-          stopLoss: parseFloat(row.stop_loss),
-          targetPrice: parseFloat(row.target_price),
-          alertTime: row.alert_time,
-          alertedAt: row.alerted_at,
-          zoneTop: parseFloat(row.zone_top),
           zoneBottom: parseFloat(row.zone_bottom),
-          zoneStart: row.zone_start,  // Zone formation start time
-          retestDate: row.retest_date,
-          retestPrice: row.retest_price ? parseFloat(row.retest_price) : null,
-          close5d: row.close_5d ? parseFloat(row.close_5d) : null,
-          return5d: row.return_5d ? parseFloat(row.return_5d) : null,
-          adjustedReturn: row.adjusted_return ? parseFloat(row.adjusted_return) : null,
+          zoneTop: parseFloat(row.zone_top),
+          zoneHeight: parseFloat(row.zone_height),
+          entryTime: row.entry_time,
+          entryPrice: parseFloat(row.entry_price),
+          entryCandleOpen: row.entry_candle_open ? parseFloat(row.entry_candle_open) : null,
+          stopPrice: parseFloat(row.stop_price),
+          targetPrice: parseFloat(row.target_price),
+          targetType: row.target_type,
+          targetHvnPercentile: row.target_hvn_percentile ? parseFloat(row.target_hvn_percentile) : null,
+          riskAmount: parseFloat(row.risk_amount),
+          rewardAmount: parseFloat(row.reward_amount),
+          riskRewardRatio: parseFloat(row.risk_reward_ratio),
           outcome: row.outcome,
+          exitTime: row.exit_time,
+          exitPrice: row.exit_price ? parseFloat(row.exit_price) : null,
+          exitReason: row.exit_reason,
+          minutesToExit: row.minutes_to_exit,
+          tradingDaysToExit: row.trading_days_to_exit,
+          candlesToExit: row.candles_to_exit,
+          pnlPoints: row.pnl_points ? parseFloat(row.pnl_points) : null,
+          pnlPercent: row.pnl_percent ? parseFloat(row.pnl_percent) : null,
+          rMultiple: row.r_multiple ? parseFloat(row.r_multiple) : null,
+          discordAlerted: row.discord_alerted,
+          timeframe: row.timeframe,
+          // Legacy field mappings for backward compatibility
+          alertId: row.trade_id,
+          stopLoss: parseFloat(row.stop_price),
+          alertTime: row.entry_time,
+          alertedAt: row.entry_time,
+          zoneStart: row.entry_time,
+          retestDate: row.exit_time,
+          retestPrice: row.exit_price ? parseFloat(row.exit_price) : null,
+          close5d: row.exit_price ? parseFloat(row.exit_price) : null,
+          return5d: row.pnl_percent ? parseFloat(row.pnl_percent) : null,
+          adjustedReturn: row.pnl_percent ? parseFloat(row.pnl_percent) : null,
         })),
         summary: {
           totalTrades: trades.length,
@@ -140,9 +161,15 @@ export async function GET(request: Request) {
           openTrades: trades.length - closedTrades.length,
           wins,
           losses,
+          breakevens,
           winRate: winRate.toFixed(1),
-          totalReturn: totalReturn.toFixed(2),
-          avgReturn: avgReturn.toFixed(2),
+          totalPnlPercent: totalPnlPercent.toFixed(2),
+          avgPnlPercent: avgPnlPercent.toFixed(2),
+          totalRMultiple: totalRMultiple.toFixed(2),
+          avgRMultiple: avgRMultiple.toFixed(2),
+          // Legacy field mappings for backward compatibility
+          totalReturn: totalPnlPercent.toFixed(2),
+          avgReturn: avgPnlPercent.toFixed(2),
         },
       },
       timestamp: new Date().toISOString(),

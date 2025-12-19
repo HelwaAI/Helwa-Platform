@@ -634,8 +634,8 @@ export default function CryptoDashboardPage() {
       setFetching(true);
       setError(null);
 
-      // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}`);
+      // Fetch aggregates data - use all=true to get all available candles from first available
+      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}&all=true`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
@@ -780,10 +780,11 @@ export default function CryptoDashboardPage() {
         "4h": "4h", "8h": "8h", "Daily": "1d", "7d": "7d", "31d": "31d", "93d": "93d",
         "65min": '65m', "130min": '130m', "195min": '195m', "390min": '390m',
       };
+      // Unlimited lookback - fetch all available data from database
       const limitMap: Record<string, number> = {
-        "5min": 8640, "15min": 5760, "30min": 4320, "1h": 2160, "2h": 1080,
-        "4h": 1080, "8h": 1095, "Daily": 1095, "7d": 104, "31d": 35, "93d": 19,
-        "65min": 3988, "130min": 4044, "195min": 2696, "390min": 4044,
+        "5min": 500000, "15min": 175000, "30min": 90000, "1h": 50000, "2h": 25000,
+        "4h": 15000, "8h": 8000, "Daily": 5000, "7d": 1000, "31d": 250, "93d": 100,
+        "65min": 50000, "130min": 25000, "195min": 17000, "390min": 10000,
       };
       const hoursMap: Record<string, number> = {
         "5min": 720, "15min": 1440, "30min": 2160, "1h": 2160, "2h": 2160,
@@ -872,22 +873,23 @@ export default function CryptoDashboardPage() {
       "390min": '390m',
 
     };
+    // Unlimited lookback - fetch all available data from database
     const limitMap: Record<string, number> = {
-      "5min": 8640,
-      "15min": 5760,
-      "30min": 4320,
-      "1h": 2160,
-      "2h": 1080,
-      "4h": 1080,
-      "8h": 1095,
-      "Daily": 1095,
-      "7d": 104,
-      "31d": 35,
-      "93d": 19,
-      "65min": 3988,
-      "130min": 4044,
-      "195min": 2696,
-      "390min": 4044,
+      "5min": 500000,
+      "15min": 175000,
+      "30min": 90000,
+      "1h": 50000,
+      "2h": 25000,
+      "4h": 15000,
+      "8h": 8000,
+      "Daily": 5000,
+      "7d": 1000,
+      "31d": 250,
+      "93d": 100,
+      "65min": 50000,
+      "130min": 25000,
+      "195min": 17000,
+      "390min": 10000,
     };
     const hoursMap: Record<string, number> = {
       "5min": 720,

@@ -3,7 +3,8 @@
 import {
   BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, TrendingDown, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
-  MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign
+  MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign,
+  ChevronUp, ChevronDown
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -500,7 +501,7 @@ interface TradeMarkerOptions {
   entryPrice: number;
   exitTime?: Time;
   exitPrice?: number;
-  outcome: 'WIN' | 'LOSS' | 'PENDING';
+  outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING' | null;
   zoneType: 'demand' | 'supply';
 }
 
@@ -761,24 +762,47 @@ type DashboardTab = 'charts' | 'trades' | 'strategy' | 'portfolio' | 'alerts' | 
 
 // Trades data interface
 interface Trade {
-  alertId: number;
+  // New fields from historical_trades table
+  tradeId: number;
   symbol: string;
   zoneType: string;
   zoneId: number;
-  entryPrice: number;
-  stopLoss: number;
-  targetPrice: number;
-  alertedAt: string;
-  alertTime: string;
-  zoneTop: number;
   zoneBottom: number;
-  zoneStart: string;  // Zone formation start time
+  zoneTop: number;
+  zoneHeight: number;
+  entryTime: string;
+  entryPrice: number;
+  entryCandleOpen: number | null;
+  stopPrice: number;
+  targetPrice: number;
+  targetType: string | null;
+  targetHvnPercentile: number | null;
+  riskAmount: number;
+  rewardAmount: number;
+  riskRewardRatio: number;
+  outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | null;
+  exitTime: string | null;
+  exitPrice: number | null;
+  exitReason: string | null;
+  minutesToExit: number | null;
+  tradingDaysToExit: number | null;
+  candlesToExit: number | null;
+  pnlPoints: number | null;
+  pnlPercent: number | null;
+  rMultiple: number | null;
+  discordAlerted: boolean;
+  timeframe: string | null;
+  // Legacy field mappings for backward compatibility
+  alertId: number;
+  stopLoss: number;
+  alertTime: string;
+  alertedAt: string;
+  zoneStart: string;
   retestDate: string | null;
   retestPrice: number | null;
   close5d: number | null;
   return5d: number | null;
   adjustedReturn: number | null;
-  outcome: 'WIN' | 'LOSS' | 'PENDING';
 }
 
 // Portfolio data interface
@@ -951,10 +975,27 @@ export default function DashboardPage() {
     bottomPrice: number;
     zoneType: string;
   } | null>(null);
+  // State for hovered candle data (for dynamic stats display)
+  const [hoveredCandle, setHoveredCandle] = useState<{
+    high: number;
+    low: number;
+    volume: number;
+    dollarVolume: number;
+    open: number;
+    close: number;
+  } | null>(null);
 
   // Trade marker state - for highlighting entry/exit when clicking from Trade History
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const pendingTradeRef = useRef<Trade | null>(null);
+
+  // Trade table sorting state
+  const [sortColumn, setSortColumn] = useState<string>('entryTime');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Show all trades on chart toggle
+  const [showTradesOnChart, setShowTradesOnChart] = useState(false);
+  const tradeMarkerPrimitivesRef = useRef<TradeMarkerPrimitive[]>([]);
 
   // Backtest state
   const [backtestConfig, setBacktestConfig] = useState<BacktestConfig>({
@@ -1054,11 +1095,18 @@ export default function DashboardPage() {
     }
   }, [activeTab]);
 
+  // Effect to fetch trades when showTradesOnChart is enabled
+  useEffect(() => {
+    if (showTradesOnChart && !tradesData) {
+      fetchTradesData();
+    }
+  }, [showTradesOnChart]);
+
   // Fetch trades data
   const fetchTradesData = async () => {
     try {
       setTabLoading(true);
-      const response = await fetch('/api/stocks/trades?limit=100');
+      const response = await fetch('/api/stocks/trades?limit=5000');
       const data = await response.json();
       if (data.success) {
         setTradesData(data.data);
@@ -1102,6 +1150,51 @@ export default function DashboardPage() {
     }
   };
 
+  // Sort trades by column
+  const sortTrades = (trades: Trade[]): Trade[] => {
+    return [...trades].sort((a, b) => {
+      let aVal: any = a[sortColumn as keyof Trade];
+      let bVal: any = b[sortColumn as keyof Trade];
+
+      // Handle null/undefined values - push to end
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      // Handle date strings
+      if (sortColumn === 'entryTime' || sortColumn === 'exitTime') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      }
+
+      // Handle numeric comparisons
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      // Handle string comparisons
+      const aStr = String(aVal).toLowerCase();
+      const bStr = String(bVal).toLowerCase();
+      if (sortDirection === 'asc') {
+        return aStr.localeCompare(bStr);
+      } else {
+        return bStr.localeCompare(aStr);
+      }
+    });
+  };
+
+  // Handle column sort click
+  const handleSortClick = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to descending
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
   // Navigate to chart for a specific trade
   const navigateToTrade = async (trade: Trade) => {
     console.log('Navigating to trade:', trade);
@@ -1112,6 +1205,9 @@ export default function DashboardPage() {
 
     // Set the zone ID to snap to
     pendingZoneSnapRef.current = trade.zoneId.toString();
+
+    // Auto-enable Show Trades toggle
+    setShowTradesOnChart(true);
 
     // Switch to charts tab
     setActiveTab('charts');
@@ -1241,8 +1337,8 @@ export default function DashboardPage() {
       setFetching(true);
       setError(null);
 
-      // Fetch aggregates data
-      const aggregatesResponse = await fetch(`/api/stocks/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}`);
+      // Fetch aggregates data - use all=true to get all available candles from first available
+      const aggregatesResponse = await fetch(`/api/stocks/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}&all=true`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
@@ -1344,11 +1440,12 @@ export default function DashboardPage() {
         "65min": "65m", "78min": "78m", "130min": "130m", "195min": "195m",
         "daily": "1d", "5d": "5d", "22d": "22d", "65d": "65d",
       };
+      // Unlimited lookback - fetch all available data from database
       const limitMap: Record<string, number> = {
-        "2min": 5850, "3min": 3900, "5min": 2340, "6min": 3900, "10min": 1755,
-        "13min": 1800, "15min": 1560, "26min": 1350, "30min": 1170, "39min": 1800,
-        "65min": 1080, "78min": 900, "130min": 1095, "195min": 730,
-        "daily": 1095, "5d": 438, "22d": 249, "65d": 85,
+        "2min": 1000000, "3min": 750000, "5min": 500000, "6min": 400000, "10min": 250000,
+        "13min": 200000, "15min": 175000, "26min": 100000, "30min": 90000, "39min": 70000,
+        "65min": 50000, "78min": 40000, "130min": 25000, "195min": 17000,
+        "daily": 10000, "5d": 2000, "22d": 500, "65d": 200,
       };
       const hoursMap: Record<string, number> = {
         "2min": 720, "3min": 720, "5min": 720, "6min": 1440, "10min": 1080,
@@ -1497,25 +1594,26 @@ export default function DashboardPage() {
       "65d": "65d",
 
     };
+    // Unlimited lookback - fetch all available data from database
     const limitMap: Record<string, number> = {
-      "2min": 5850,
-      "3min": 3900,
-      "5min": 2340,
-      "6min": 3900, //35100
-      "10min": 1755,
-      "13min": 1800,
-      "15min": 1560,
-      "26min": 1350,
-      "30min": 1170,
-      "39min": 1800,
-      "65min": 1080,
-      "78min": 900,
-      "130min": 1095,
-      "195min": 730,
-      "daily": 1095,
-      "5d": 438,
-      "22d": 249,
-      "65d": 85,
+      "2min": 1000000,
+      "3min": 750000,
+      "5min": 500000,
+      "6min": 400000,
+      "10min": 250000,
+      "13min": 200000,
+      "15min": 175000,
+      "26min": 100000,
+      "30min": 90000,
+      "39min": 70000,
+      "65min": 50000,
+      "78min": 40000,
+      "130min": 25000,
+      "195min": 17000,
+      "daily": 10000,
+      "5d": 2000,
+      "22d": 500,
+      "65d": 200,
     };
     const hoursMap: Record<string, number> = {
       "2min": 720,  
@@ -1649,6 +1747,26 @@ export default function DashboardPage() {
       // Set data on the series
       candlestickSeries.setData(candleData as any);
 
+      // Initialize hoveredCandle with the last bar's data
+      if (stockData?.bars && stockData.bars.length > 0) {
+        const lastBar = stockData.bars[stockData.bars.length - 1];
+        const high = Number(lastBar.high);
+        const low = Number(lastBar.low);
+        const open = Number(lastBar.open);
+        const close = Number(lastBar.close);
+        const volume = Number(lastBar.volume);
+        const vwap = (high + low + close) / 3;
+        const dollarVolume = volume * vwap;
+        setHoveredCandle({
+          high,
+          low,
+          open,
+          close,
+          volume,
+          dollarVolume
+        });
+      }
+
       // Fit content to view
       chart.timeScale().fitContent();
 
@@ -1750,8 +1868,54 @@ export default function DashboardPage() {
         console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
       }
 
-      // Add crosshair move handler for zone tooltips
+      // Add crosshair move handler for zone tooltips and candle stats
       chart.subscribeCrosshairMove((param) => {
+        // Update hovered candle data for stats display
+        if (param.time && param.seriesData) {
+          const candleData = param.seriesData.get(candlestickSeries) as { open: number; high: number; low: number; close: number } | undefined;
+          if (candleData) {
+            // Find the matching bar from stockData to get volume
+            const timeValue = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+            const matchingBar = stockData?.bars?.find(bar => {
+              const barTime = Math.floor(new Date(bar.bucket).getTime() / 1000);
+              return barTime === timeValue;
+            });
+            const volume = matchingBar?.volume || 0;
+            // Calculate dollar volume as volume * VWAP (approximated as (high + low + close) / 3)
+            const vwap = (candleData.high + candleData.low + candleData.close) / 3;
+            const dollarVolume = volume * vwap;
+
+            setHoveredCandle({
+              high: candleData.high,
+              low: candleData.low,
+              open: candleData.open,
+              close: candleData.close,
+              volume: volume,
+              dollarVolume: dollarVolume
+            });
+          }
+        } else {
+          // When cursor leaves chart, show the last available candle's data
+          if (stockData?.bars && stockData.bars.length > 0) {
+            const lastBar = stockData.bars[stockData.bars.length - 1];
+            const high = Number(lastBar.high);
+            const low = Number(lastBar.low);
+            const open = Number(lastBar.open);
+            const close = Number(lastBar.close);
+            const volume = Number(lastBar.volume);
+            const vwap = (high + low + close) / 3;
+            const dollarVolume = volume * vwap;
+            setHoveredCandle({
+              high,
+              low,
+              open,
+              close,
+              volume,
+              dollarVolume: dollarVolume
+            });
+          }
+        }
+
         if (!param.point || !param.time || !zonesData || !zonesData.zones) {
           setZoneTooltip(null);
           return;
@@ -1866,6 +2030,57 @@ export default function DashboardPage() {
 
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
+
+              // Render all trades for the current symbol if showTradesOnChart is enabled
+              if (showTradesOnChart && tradesData && stockData) {
+                const currentSymbol = stockData.symbol;
+                const symbolTrades = tradesData.trades.filter(t => t.symbol === currentSymbol);
+
+                console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol}`);
+
+                symbolTrades.forEach(trade => {
+                  try {
+                    // Calculate entry time
+                    const entryTimeStr = trade.entryTime || trade.retestDate || trade.alertTime;
+                    if (!entryTimeStr) return;
+
+                    const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
+                    const entryPrice = trade.entryPrice || trade.retestPrice;
+                    if (!entryPrice) return;
+
+                    // Calculate exit time and price
+                    let exitTime: Time | undefined;
+                    let exitPrice: number | undefined;
+
+                    if (trade.exitTime) {
+                      exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
+                      exitPrice = trade.exitPrice || undefined;
+                    } else if (trade.close5d !== null && trade.close5d !== undefined) {
+                      // Exit is ~5 trading days after entry
+                      const entryDate = new Date(entryTimeStr);
+                      const exitDate = new Date(entryDate);
+                      exitDate.setDate(exitDate.getDate() + 7);
+                      exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
+                      exitPrice = trade.close5d;
+                    }
+
+                    // Create the trade marker primitive
+                    const tradeMarker = new TradeMarkerPrimitive({
+                      entryTime,
+                      entryPrice,
+                      exitTime,
+                      exitPrice,
+                      outcome: trade.outcome,
+                      zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply'
+                    });
+
+                    candlestickSeries.attachPrimitive(tradeMarker);
+                    tradeMarkerPrimitivesRef.current.push(tradeMarker);
+                  } catch (err) {
+                    console.error('Error creating trade marker:', err, trade);
+                  }
+                });
+              }
             } catch (err) {
               console.error('Error snapping to zone:', err);
               pendingZoneSnapRef.current = null;
@@ -1877,6 +2092,58 @@ export default function DashboardPage() {
           pendingZoneSnapRef.current = null;
           pendingTradeRef.current = null;
         }
+      }
+
+      // Render all trades for the current symbol if showTradesOnChart is enabled
+      // This runs even when not snapping to a specific zone
+      if (showTradesOnChart && tradesData && stockData && !pendingZoneSnapRef.current) {
+        const currentSymbol = stockData.symbol;
+        const symbolTrades = tradesData.trades.filter((t: any) => t.symbol === currentSymbol);
+
+        console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol} (toggle mode)`);
+
+        symbolTrades.forEach((trade: any) => {
+          try {
+            // Calculate entry time
+            const entryTimeStr = trade.entryTime || trade.retestDate || trade.alertTime;
+            if (!entryTimeStr) return;
+
+            const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
+            const entryPrice = trade.entryPrice || trade.retestPrice;
+            if (!entryPrice) return;
+
+            // Calculate exit time and price
+            let exitTime: Time | undefined;
+            let exitPrice: number | undefined;
+
+            if (trade.exitTime) {
+              exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
+              exitPrice = trade.exitPrice || undefined;
+            } else if (trade.close5d !== null && trade.close5d !== undefined) {
+              // Exit is ~5 trading days after entry
+              const entryDate = new Date(entryTimeStr);
+              const exitDate = new Date(entryDate);
+              exitDate.setDate(exitDate.getDate() + 7);
+              exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
+              exitPrice = trade.close5d;
+            }
+
+            // Create the trade marker primitive
+            const tradeMarker = new TradeMarkerPrimitive({
+              entryTime,
+              entryPrice,
+              exitTime,
+              exitPrice,
+              outcome: trade.outcome,
+              zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply'
+            });
+
+            candlestickSeries.attachPrimitive(tradeMarker);
+            tradeMarkerPrimitivesRef.current.push(tradeMarker);
+          } catch (err) {
+            console.error('Error creating trade marker:', err, trade);
+          }
+        });
       }
 
       // Handle window resize
@@ -1906,11 +2173,17 @@ export default function DashboardPage() {
           volumeProfilePrimitiveRef.current = null;
         }
 
-        // Clean up trade marker primitive
+        // Clean up trade marker primitive (single)
         if (tradeMarkerPrimitiveRef.current) {
           candlestickSeries.detachPrimitive(tradeMarkerPrimitiveRef.current);
           tradeMarkerPrimitiveRef.current = null;
         }
+
+        // Clean up multiple trade marker primitives
+        tradeMarkerPrimitivesRef.current.forEach(primitive => {
+          candlestickSeries.detachPrimitive(primitive);
+        });
+        tradeMarkerPrimitivesRef.current = [];
 
         chart.remove();
         chartInstanceRef.current = null;
@@ -1918,7 +2191,7 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [stockData, zonesData, showVolumeProfile, volumeProfileData]);
+  }, [stockData, zonesData, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData]);
 
   const isLocked = user.role === "free";
 
@@ -2031,7 +2304,7 @@ export default function DashboardPage() {
                   ) : tradesData ? (
                     <>
                       {/* Summary Stats */}
-                      <div className="p-4 grid grid-cols-5 gap-4 border-b border-border">
+                      <div className="p-4 grid grid-cols-6 gap-4 border-b border-border">
                         <div className="bg-background rounded-lg p-3">
                           <div className="text-xs text-secondary">Total Trades</div>
                           <div className="text-xl font-bold text-primary">{tradesData.summary.totalTrades}</div>
@@ -2049,15 +2322,21 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Total Return</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.totalReturn) >= 0 ? '+' : ''}{tradesData.summary.totalReturn}%
+                          <div className="text-xs text-secondary">Total P&L</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn) >= 0 ? '+' : ''}{tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn}%
                           </div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Avg Return</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgReturn}%
+                          <div className="text-xs text-secondary">Avg P&L</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn}%
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg R-Multiple</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? '+' : ''}{tradesData.summary.avgRMultiple || '0'}R
                           </div>
                         </div>
                       </div>
@@ -2066,29 +2345,94 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between px-3 py-2 bg-elevated/50 border-b border-border">
                           <span className="text-xs text-secondary">Click a trade to view on chart</span>
                         </div>
-                        <table className="w-full text-sm min-w-[1000px]">
+                        <table className="w-full text-sm min-w-[1200px]">
                           <thead className="bg-elevated sticky top-0 z-10">
                             <tr className="text-left text-secondary">
-                              <th className="p-3">Symbol</th>
-                              <th className="p-3">Type</th>
-                              <th className="p-3 whitespace-nowrap">Alert Date</th>
-                              <th className="p-3 whitespace-nowrap">Retest Date</th>
-                              <th className="p-3 text-right">Entry</th>
-                              <th className="p-3 text-right">Exit (5d)</th>
-                              <th className="p-3 text-right">Stop</th>
-                              <th className="p-3 text-right">Target</th>
-                              <th className="p-3 text-right whitespace-nowrap">Position $</th>
-                              <th className="p-3 text-right">Return</th>
-                              <th className="p-3 text-center">Status</th>
+                              <th className="p-3 cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('symbol')}>
+                                <div className="flex items-center gap-1">
+                                  Symbol
+                                  {sortColumn === 'symbol' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('zoneType')}>
+                                <div className="flex items-center gap-1">
+                                  Type
+                                  {sortColumn === 'zoneType' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 whitespace-nowrap cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('entryTime')}>
+                                <div className="flex items-center gap-1">
+                                  Entry Date
+                                  {sortColumn === 'entryTime' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 whitespace-nowrap cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitTime')}>
+                                <div className="flex items-center gap-1">
+                                  Exit Date
+                                  {sortColumn === 'exitTime' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('entryPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Entry
+                                  {sortColumn === 'entryPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Exit
+                                  {sortColumn === 'exitPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('stopPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Stop
+                                  {sortColumn === 'stopPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('targetPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Target
+                                  {sortColumn === 'targetPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('riskRewardRatio')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  R:R
+                                  {sortColumn === 'riskRewardRatio' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('pnlPercent')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  P&L %
+                                  {sortColumn === 'pnlPercent' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('rMultiple')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  R-Mult
+                                  {sortColumn === 'rMultiple' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-center cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitReason')}>
+                                <div className="flex items-center justify-center gap-1">
+                                  Exit Reason
+                                  {sortColumn === 'exitReason' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-center cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('outcome')}>
+                                <div className="flex items-center justify-center gap-1">
+                                  Status
+                                  {sortColumn === 'outcome' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
-                            {tradesData.trades.map((trade: Trade) => {
-                              // Calculate approximate position size (entry price * 100 shares as placeholder)
-                              const positionSize = trade.entryPrice ? trade.entryPrice * 100 : 0;
+                            {sortTrades(tradesData.trades).map((trade: Trade) => {
                               return (
                                 <tr
-                                  key={trade.alertId}
+                                  key={trade.tradeId || trade.alertId}
                                   onClick={() => navigateToTrade(trade)}
                                   className="border-t border-border hover:bg-elevated/50 cursor-pointer transition-colors"
                                   title="Click to view on chart"
@@ -2102,38 +2446,45 @@ export default function DashboardPage() {
                                     </span>
                                   </td>
                                   <td className="p-3 text-secondary whitespace-nowrap">
-                                    {new Date(trade.alertedAt).toLocaleDateString()}
+                                    {trade.entryTime ? new Date(trade.entryTime).toLocaleDateString() : new Date(trade.alertedAt).toLocaleDateString()}
                                   </td>
                                   <td className="p-3 text-secondary whitespace-nowrap">
-                                    {trade.retestDate ? new Date(trade.retestDate).toLocaleDateString() : '-'}
+                                    {trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : (trade.retestDate ? new Date(trade.retestDate).toLocaleDateString() : '-')}
                                   </td>
                                   <td className="p-3 text-right text-primary">
-                                    ${trade.retestPrice?.toFixed(2) || trade.entryPrice?.toFixed(2)}
+                                    ${trade.entryPrice?.toFixed(2)}
                                   </td>
                                   <td className={`p-3 text-right ${
-                                    trade.close5d && trade.retestPrice
+                                    trade.exitPrice && trade.entryPrice
                                       ? (trade.zoneType === 'demand'
-                                          ? (trade.close5d > trade.retestPrice ? 'text-success' : 'text-red-400')
-                                          : (trade.close5d < trade.retestPrice ? 'text-success' : 'text-red-400'))
+                                          ? (trade.exitPrice > trade.entryPrice ? 'text-success' : 'text-red-400')
+                                          : (trade.exitPrice < trade.entryPrice ? 'text-success' : 'text-red-400'))
                                       : 'text-secondary'
                                   }`}>
-                                    {trade.close5d ? `$${trade.close5d.toFixed(2)}` : '-'}
+                                    {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : (trade.close5d ? `$${trade.close5d.toFixed(2)}` : '-')}
                                   </td>
-                                  <td className="p-3 text-right text-red-400">${trade.stopLoss?.toFixed(2)}</td>
+                                  <td className="p-3 text-right text-red-400">${(trade.stopPrice || trade.stopLoss)?.toFixed(2)}</td>
                                   <td className="p-3 text-right text-accent">${trade.targetPrice?.toFixed(2)}</td>
-                                  <td className="p-3 text-right text-secondary whitespace-nowrap">
-                                    ${positionSize.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                  <td className="p-3 text-right text-secondary">
+                                    {trade.riskRewardRatio ? trade.riskRewardRatio.toFixed(1) : '-'}
                                   </td>
-                                  <td className={`p-3 text-right font-medium ${trade.adjustedReturn && trade.adjustedReturn >= 0 ? 'text-success' : 'text-red-500'}`}>
-                                    {trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-'}
+                                  <td className={`p-3 text-right font-medium ${(trade.pnlPercent ?? trade.adjustedReturn ?? 0) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                    {trade.pnlPercent !== null ? `${trade.pnlPercent >= 0 ? '+' : ''}${trade.pnlPercent.toFixed(2)}%` : (trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-')}
+                                  </td>
+                                  <td className={`p-3 text-right font-medium ${(trade.rMultiple ?? 0) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                    {trade.rMultiple !== null ? `${trade.rMultiple >= 0 ? '+' : ''}${trade.rMultiple.toFixed(2)}R` : '-'}
+                                  </td>
+                                  <td className="p-3 text-center text-xs text-secondary">
+                                    {trade.exitReason || '-'}
                                   </td>
                                   <td className="p-3 text-center">
                                     <span className={`px-2 py-1 rounded text-xs ${
                                       trade.outcome === 'WIN' ? 'bg-success/20 text-success' :
                                       trade.outcome === 'LOSS' ? 'bg-red-500/20 text-red-400' :
+                                      trade.outcome === 'BREAKEVEN' ? 'bg-blue-500/20 text-blue-400' :
                                       'bg-yellow-500/20 text-yellow-400'
                                     }`}>
-                                      {trade.outcome}
+                                      {trade.outcome || 'PENDING'}
                                     </span>
                                   </td>
                                 </tr>
@@ -2999,6 +3350,19 @@ export default function DashboardPage() {
                       <BarChart3 className="h-4 w-4" />
                       VP
                     </button>
+                    {/* Show Trades Toggle */}
+                    <button
+                      onClick={() => setShowTradesOnChart(!showTradesOnChart)}
+                      className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
+                        showTradesOnChart
+                          ? 'bg-accent/20 border-accent text-accent'
+                          : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
+                      }`}
+                      title="Show trade entry/exit markers on chart"
+                    >
+                      <Target className="h-4 w-4" />
+                      Trades
+                    </button>
                     {/* Volume Profile Bins Selector (only show when VP is active) */}
                     {showVolumeProfile && (
                       <>
@@ -3135,10 +3499,28 @@ export default function DashboardPage() {
             {/* Stats Container - Separate from Chart */}
             <div className="px-4 pb-4">
               <div className="grid grid-cols-3 gap-10">
-              {stockData ? [
-                { label: 'Volume 24h', value: `${((Number(stockData.volume_24h) || 0) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
-                { label: 'High 24h', value: `$${Number(stockData.high_24h).toFixed(2)}`, change: `+${((Number(stockData.high_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.high_24h) > Number(stockData.latest_price) },
-                { label: 'Low 24h', value: `$${Number(stockData.low_24h).toFixed(2)}`, change: `${((Number(stockData.low_24h) - Number(stockData.latest_price)) / Number(stockData.latest_price) * 100).toFixed(2)}%`, up: Number(stockData.low_24h) < Number(stockData.latest_price) },
+              {stockData && hoveredCandle ? [
+                // Show candle data (hovered candle or last available candle)
+                {
+                  label: 'Dollar Volume',
+                  value: hoveredCandle.dollarVolume >= 1_000_000_000
+                    ? `$${(hoveredCandle.dollarVolume / 1_000_000_000).toFixed(2)}B`
+                    : `$${(hoveredCandle.dollarVolume / 1_000_000).toFixed(2)}M`,
+                  change: `${(hoveredCandle.volume / 1_000_000).toFixed(2)}M shares`,
+                  up: true
+                },
+                {
+                  label: 'High',
+                  value: `$${hoveredCandle.high.toFixed(2)}`,
+                  change: `+${((hoveredCandle.high - hoveredCandle.close) / hoveredCandle.close * 100).toFixed(2)}%`,
+                  up: true
+                },
+                {
+                  label: 'Low',
+                  value: `$${hoveredCandle.low.toFixed(2)}`,
+                  change: `${((hoveredCandle.low - hoveredCandle.close) / hoveredCandle.close * 100).toFixed(2)}%`,
+                  up: false
+                },
               ].map((stat, i) => (
                 <div key={i} className="bg-panel border border-border rounded-lg p-4">
                   <div className="text-xs text-secondary mb-1">{stat.label}</div>
