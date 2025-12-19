@@ -522,6 +522,241 @@ class VolumeProfilePrimitive {
 }
 
 // ============================================================================
+// Trade Marker Primitive Classes - For showing trade entry/exit markers
+// ============================================================================
+
+interface TradeMarkerOptions {
+  entryTime: Time;
+  entryPrice: number;
+  exitTime?: Time;
+  exitPrice?: number;
+  outcome?: string | null;
+  zoneType: 'demand' | 'supply';
+}
+
+// Renderer that draws trade markers (triangles/arrows)
+class TradeMarkerRenderer {
+  private _entryCoord: { x: number | null; y: number | null };
+  private _exitCoord: { x: number | null; y: number | null };
+  private _options: TradeMarkerOptions;
+
+  constructor(
+    entryCoord: { x: number | null; y: number | null },
+    exitCoord: { x: number | null; y: number | null },
+    options: TradeMarkerOptions
+  ) {
+    this._entryCoord = entryCoord;
+    this._exitCoord = exitCoord;
+    this._options = options;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      const ctx = scope.context;
+      const hRatio = scope.horizontalPixelRatio;
+      const vRatio = scope.verticalPixelRatio;
+
+      // Draw entry marker (upward triangle for demand/buy, downward for supply/sell)
+      if (this._entryCoord.x !== null && this._entryCoord.y !== null) {
+        const ex = Math.round(this._entryCoord.x * hRatio);
+        const ey = Math.round(this._entryCoord.y * vRatio);
+        const size = 12 * hRatio;
+
+        // Entry marker - cyan/blue color for entry
+        ctx.fillStyle = '#00BCD4';
+        ctx.strokeStyle = '#00838F';
+        ctx.lineWidth = 2 * hRatio;
+
+        ctx.beginPath();
+        if (this._options.zoneType === 'demand') {
+          // Upward triangle (buy entry)
+          ctx.moveTo(ex, ey - size);
+          ctx.lineTo(ex - size * 0.7, ey + size * 0.5);
+          ctx.lineTo(ex + size * 0.7, ey + size * 0.5);
+        } else {
+          // Downward triangle (sell entry)
+          ctx.moveTo(ex, ey + size);
+          ctx.lineTo(ex - size * 0.7, ey - size * 0.5);
+          ctx.lineTo(ex + size * 0.7, ey - size * 0.5);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Entry label
+        ctx.fillStyle = '#00BCD4';
+        ctx.font = `bold ${10 * vRatio}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('ENTRY', ex, ey - size - 5 * vRatio);
+
+        // Entry price line (dashed horizontal)
+        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
+        ctx.strokeStyle = 'rgba(0, 188, 212, 0.6)';
+        ctx.lineWidth = 1 * hRatio;
+        ctx.beginPath();
+        ctx.moveTo(ex - 100 * hRatio, ey);
+        ctx.lineTo(ex + 100 * hRatio, ey);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw exit marker if available
+      if (this._exitCoord.x !== null && this._exitCoord.y !== null) {
+        const xx = Math.round(this._exitCoord.x * hRatio);
+        const xy = Math.round(this._exitCoord.y * vRatio);
+        const size = 12 * hRatio;
+
+        // Exit marker color based on outcome
+        const exitColor = this._options.outcome === 'WIN' ? '#4CAF50' :
+                          this._options.outcome === 'LOSS' ? '#FF5252' : '#FFC107';
+        const exitStroke = this._options.outcome === 'WIN' ? '#2E7D32' :
+                           this._options.outcome === 'LOSS' ? '#C62828' : '#FF8F00';
+
+        ctx.fillStyle = exitColor;
+        ctx.strokeStyle = exitStroke;
+        ctx.lineWidth = 2 * hRatio;
+
+        // Draw X mark for exit
+        ctx.beginPath();
+        ctx.moveTo(xx - size * 0.5, xy - size * 0.5);
+        ctx.lineTo(xx + size * 0.5, xy + size * 0.5);
+        ctx.moveTo(xx + size * 0.5, xy - size * 0.5);
+        ctx.lineTo(xx - size * 0.5, xy + size * 0.5);
+        ctx.stroke();
+
+        // Circle around X
+        ctx.beginPath();
+        ctx.arc(xx, xy, size * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Exit label
+        ctx.fillStyle = exitColor;
+        ctx.font = `bold ${10 * vRatio}px sans-serif`;
+        ctx.textAlign = 'center';
+        const exitLabel = this._options.outcome === 'WIN' ? 'TARGET' :
+                          this._options.outcome === 'LOSS' ? 'STOP' : 'EXIT';
+        ctx.fillText(exitLabel, xx, xy - size - 5 * vRatio);
+
+        // Exit price line (dashed horizontal)
+        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
+        ctx.strokeStyle = `${exitColor}99`;
+        ctx.lineWidth = 1 * hRatio;
+        ctx.beginPath();
+        ctx.moveTo(xx - 100 * hRatio, xy);
+        ctx.lineTo(xx + 100 * hRatio, xy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw connecting line between entry and exit
+      if (this._entryCoord.x !== null && this._entryCoord.y !== null &&
+          this._exitCoord.x !== null && this._exitCoord.y !== null) {
+        const ex = Math.round(this._entryCoord.x * hRatio);
+        const ey = Math.round(this._entryCoord.y * vRatio);
+        const xx = Math.round(this._exitCoord.x * hRatio);
+        const xy = Math.round(this._exitCoord.y * vRatio);
+
+        const lineColor = this._options.outcome === 'WIN' ? 'rgba(76, 175, 80, 0.4)' :
+                          this._options.outcome === 'LOSS' ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255, 193, 7, 0.4)';
+
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2 * hRatio;
+        ctx.setLineDash([10 * hRatio, 5 * hRatio]);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(xx, xy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+}
+
+// Pane view for trade markers
+class TradeMarkerPaneView {
+  private _source: TradeMarkerPrimitive;
+  private _entryCoord: { x: number | null; y: number | null } = { x: null, y: null };
+  private _exitCoord: { x: number | null; y: number | null } = { x: null, y: null };
+
+  constructor(source: TradeMarkerPrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    const series = this._source.series;
+    const chart = this._source.chart;
+    if (!series || !chart) return;
+
+    const timeScale = chart.timeScale();
+    const options = this._source.options;
+
+    // Convert entry coordinates
+    this._entryCoord = {
+      x: timeScale.timeToCoordinate(options.entryTime),
+      y: series.priceToCoordinate(options.entryPrice)
+    };
+
+    // Convert exit coordinates if available
+    if (options.exitTime && options.exitPrice) {
+      this._exitCoord = {
+        x: timeScale.timeToCoordinate(options.exitTime),
+        y: series.priceToCoordinate(options.exitPrice)
+      };
+    } else {
+      this._exitCoord = { x: null, y: null };
+    }
+  }
+
+  renderer() {
+    return new TradeMarkerRenderer(this._entryCoord, this._exitCoord, this._source.options);
+  }
+}
+
+// Main Trade Marker Primitive class
+class TradeMarkerPrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: TradeMarkerPaneView[];
+  private _options: TradeMarkerOptions;
+  private _requestUpdate?: () => void;
+
+  constructor(options: TradeMarkerOptions) {
+    this._options = options;
+    this._paneViews = [new TradeMarkerPaneView(this)];
+  }
+
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get options() { return this._options; }
+
+  paneViews() {
+    return this._paneViews;
+  }
+
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -576,6 +811,10 @@ export default function CryptoDashboardPage() {
   const [volumeProfileEndTime, setVolumeProfileEndTime] = useState("14:30");
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
+  // Trades state
+  const [tradesData, setTradesData] = useState<any>(null);
+  const [showTradesOnChart, setShowTradesOnChart] = useState(false);
+  const tradeMarkerPrimitivesRef = useRef<TradeMarkerPrimitive[]>([]);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
   console.log("Timeframe: ", timeframe);
@@ -611,6 +850,27 @@ export default function CryptoDashboardPage() {
 
 
 
+  // Resolve plain crypto symbol (e.g., "XRP", "BTC") to Massive format (e.g., "X:XRPUSD")
+  const resolveCryptoSymbol = (input: string): string => {
+    const trimmed = input.trim().toUpperCase();
+
+    // Already in correct format (X:XXXUSD)
+    if (trimmed.startsWith('X:') && trimmed.endsWith('USD')) {
+      return trimmed;
+    }
+
+    // Handle "X:XXX" without USD suffix
+    if (trimmed.startsWith('X:')) {
+      const base = trimmed.substring(2);
+      return `X:${base}USD`;
+    }
+
+    // Plain symbol like "XRP", "BTC", "ETH" - convert to X:XXXUSD
+    // Remove any trailing "USD" if user typed "XRPUSD"
+    const base = trimmed.endsWith('USD') ? trimmed.slice(0, -3) : trimmed;
+    return `X:${base}USD`;
+  };
+
   // Fetch crypto data based on symbol
   const fetchCryptoData = async (
     symbol: string,
@@ -625,6 +885,9 @@ export default function CryptoDashboardPage() {
       return;
     }
 
+    // Resolve the symbol to Massive format
+    const resolvedSymbol = resolveCryptoSymbol(symbol);
+
     // Use custom values if provided, otherwise use state
     const tf = customTimeframe ?? timeframe;
     const lim = customLimit ?? limit;
@@ -635,16 +898,16 @@ export default function CryptoDashboardPage() {
       setError(null);
 
       // Fetch aggregates data - use all=true to get all available candles from first available
-      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${symbol.toUpperCase()}&limit=${lim}&timeframe=${tf}&hours=${hrs}&all=true`);
+      const aggregatesResponse = await fetch(`/api/crypto/aggregates?symbols=${resolvedSymbol}&limit=${lim}&timeframe=${tf}&hours=${hrs}&all=true`);
       const aggregatesData = await aggregatesResponse.json();
 
       // Fetch zones data
-      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${symbol.toUpperCase()}&timeframe=${tf}`);
+      const zonesResponse = await fetch(`/api/crypto/zones?symbols=${resolvedSymbol}&timeframe=${tf}`);
       const zonesDataResponse = await zonesResponse.json();
 
       // Fetch entry/target/stoploss data (may not exist for all symbols)
       try {
-        const entryTargetResponse = await fetch(`/api/crypto/entrytargetstoploss?symbol=${symbol.toUpperCase()}`);
+        const entryTargetResponse = await fetch(`/api/crypto/entrytargetstoploss?symbol=${resolvedSymbol}`);
         const entryTargetData = await entryTargetResponse.json();
 
         if (entryTargetData.success && entryTargetData.data) {
@@ -671,7 +934,7 @@ export default function CryptoDashboardPage() {
           setZonesData(null);
         }
       } else {
-        setError(`No data found for ${symbol}`);
+        setError(`No data found for ${resolvedSymbol}`);
         setCryptoData(null);
         setZonesData(null);
       }
@@ -684,12 +947,35 @@ export default function CryptoDashboardPage() {
     }
   };
 
+  // Fetch crypto trades data
+  const fetchTradesData = async () => {
+    try {
+      const response = await fetch('/api/crypto/trades?limit=5000');
+      const data = await response.json();
+      if (data.success) {
+        setTradesData(data.data);
+      }
+    } catch (err) {
+      console.error('Error fetching crypto trades:', err);
+    }
+  };
+
+  // Effect to fetch trades when showTradesOnChart is enabled
+  useEffect(() => {
+    if (showTradesOnChart && !tradesData) {
+      fetchTradesData();
+    }
+  }, [showTradesOnChart]);
+
   // Fetch volume profile data
   const fetchVolumeProfile = async (symbol: string, numBins: number = 50) => {
     if (!symbol.trim()) {
       setVolumeProfileData(null);
       return;
     }
+
+    // Resolve symbol to Massive format
+    const resolvedSymbol = resolveCryptoSymbol(symbol);
 
     // Validate dates before fetching
     if (!volumeProfileStartDate || !volumeProfileEndDate) {
@@ -721,7 +1007,7 @@ export default function CryptoDashboardPage() {
       console.log(`[VP] Fetching volume profile: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       const response = await fetch(
-        `/api/crypto/volumeprofile?symbol=${symbol.toUpperCase()}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
+        `/api/crypto/volumeprofile?symbol=${resolvedSymbol}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
       );
       const data = await response.json();
 
@@ -1279,6 +1565,63 @@ export default function CryptoDashboardPage() {
         }
       }
 
+      // Clean up existing trade markers before rendering new ones
+      tradeMarkerPrimitivesRef.current.forEach(primitive => {
+        candlestickSeries.detachPrimitive(primitive);
+      });
+      tradeMarkerPrimitivesRef.current = [];
+
+      // Render all trades for the current symbol if showTradesOnChart is enabled
+      if (showTradesOnChart && tradesData && cryptoData) {
+        const currentSymbol = cryptoData.symbol;
+        const symbolTrades = tradesData.trades.filter((t: any) => t.symbol === currentSymbol);
+
+        console.log(`Rendering ${symbolTrades.length} crypto trade markers for ${currentSymbol}`);
+
+        symbolTrades.forEach((trade: any) => {
+          try {
+            // Calculate entry time
+            const entryTimeStr = trade.entryTime || trade.retestDate || trade.alertTime;
+            if (!entryTimeStr) return;
+
+            const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
+            const entryPrice = trade.entryPrice || trade.retestPrice;
+            if (!entryPrice) return;
+
+            // Calculate exit time and price
+            let exitTime: Time | undefined;
+            let exitPrice: number | undefined;
+
+            if (trade.exitTime) {
+              exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
+              exitPrice = trade.exitPrice || undefined;
+            } else if (trade.close5d !== null && trade.close5d !== undefined) {
+              // Exit is ~5 days after entry for crypto
+              const entryDate = new Date(entryTimeStr);
+              const exitDate = new Date(entryDate);
+              exitDate.setDate(exitDate.getDate() + 5);
+              exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
+              exitPrice = trade.close5d;
+            }
+
+            // Create the trade marker primitive
+            const tradeMarker = new TradeMarkerPrimitive({
+              entryTime,
+              entryPrice,
+              exitTime,
+              exitPrice,
+              outcome: trade.outcome,
+              zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply'
+            });
+
+            candlestickSeries.attachPrimitive(tradeMarker);
+            tradeMarkerPrimitivesRef.current.push(tradeMarker);
+          } catch (err) {
+            console.error('Error creating trade marker:', err, trade);
+          }
+        });
+      }
+
       // Handle window resize
       const handleResize = () => {
         if (chartContainerRef.current) {
@@ -1306,6 +1649,12 @@ export default function CryptoDashboardPage() {
           volumeProfilePrimitiveRef.current = null;
         }
 
+        // Clean up trade marker primitives
+        tradeMarkerPrimitivesRef.current.forEach(primitive => {
+          candlestickSeries.detachPrimitive(primitive);
+        });
+        tradeMarkerPrimitivesRef.current = [];
+
         // Drawing tool cleanup - COMMENTED OUT
         // if (drawingToolRef.current) {
         //   drawingToolRef.current.remove();
@@ -1318,7 +1667,7 @@ export default function CryptoDashboardPage() {
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [cryptoData, zonesData, showVolumeProfile, volumeProfileData]);
+  }, [cryptoData, zonesData, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData]);
 
   const isLocked = user.role === "free";
 
@@ -1479,6 +1828,19 @@ export default function CryptoDashboardPage() {
                   >
                     <BarChart3 className="h-4 w-4" />
                     VP
+                  </button>
+                  {/* Show Trades Toggle */}
+                  <button
+                    onClick={() => setShowTradesOnChart(!showTradesOnChart)}
+                    className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
+                      showTradesOnChart
+                        ? 'bg-accent/20 border-accent text-accent'
+                        : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
+                    }`}
+                    title="Show trade entry/exit markers on chart"
+                  >
+                    <Target className="h-4 w-4" />
+                    Trades
                   </button>
                   {/* Volume Profile Controls (only show when VP is active) */}
                   {showVolumeProfile && (
