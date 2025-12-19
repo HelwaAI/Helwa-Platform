@@ -73,10 +73,10 @@ export default function TopPerformers() {
             const bounceClose = parseFloat(performer.bounce_close as any);
             const return5d = parseFloat(performer.return_5d as any);
             const returnPercent = return5d.toFixed(2);
-            const bounceDate = new Date(performer.bounce_day).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric'
-            });
+            // Parse ISO date string (e.g., "2025-12-02T08:00:00.000Z") using UTC to avoid timezone shift
+            const d = new Date(performer.bounce_day);
+            const bounceDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+              .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
             return (
               <Link

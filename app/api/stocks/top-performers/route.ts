@@ -22,14 +22,15 @@ const pool = new Pool({
 
 export async function GET(request: Request) {
   try {
-    // Query for top performing stocks based on demand zone bounces
+    // Query for top performing stocks that were ACTUALLY ALERTED by the production system
+    // Only includes zones from zone_touch_events where alerted = true
     const query = `
       SELECT * FROM (
-        SELECT DISTINCT ON (c.symbol)
-            c.symbol,
-            c.zone_id,
-            c.zone_type,
-            c.bounce_day,
+        SELECT DISTINCT ON (s.symbol)
+            s.symbol,
+            zte.zone_id,
+            z.zone_type,
+            DATE(zte.entry_time) AS bounce_day,
             c.bounce_close,
             c.penetration_pct,
             c.return_1d,
@@ -38,11 +39,15 @@ export async function GET(request: Request) {
             c.return_5d,
             c.zone_low,
             c.zone_high
-        FROM stocks.zone_percent_returns c
-        WHERE c.bounce_day >= CURRENT_DATE - INTERVAL '22 days'
+        FROM stocks.zone_touch_events zte
+        JOIN stocks.zones z ON zte.zone_id = z.zone_id
+        JOIN stocks.symbols s ON z.symbol_id = s.id
+        JOIN stocks.zone_first_retests_cache c ON zte.zone_id = c.zone_id
+        WHERE zte.alerted = true
+            AND z.zone_type = 'demand'
+            AND zte.entry_time >= CURRENT_DATE - INTERVAL '22 days'
             AND c.return_5d IS NOT NULL
-            AND c.zone_type = 'demand'
-        ORDER BY c.symbol, c.return_5d DESC
+        ORDER BY s.symbol, c.return_5d DESC
       ) best_per_symbol
       ORDER BY return_5d DESC
       LIMIT 3
