@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, Activity,
+  BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, TrendingDown, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
-  MessageSquare, Send, X, Search, Coins
+  MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -492,6 +492,241 @@ class VolumeProfilePrimitive {
 }
 
 // ============================================================================
+// Trade Marker Primitive - Visual indicators for trade entry/exit
+// ============================================================================
+
+interface TradeMarkerOptions {
+  entryTime: Time;
+  entryPrice: number;
+  exitTime?: Time;
+  exitPrice?: number;
+  outcome: 'WIN' | 'LOSS' | 'PENDING';
+  zoneType: 'demand' | 'supply';
+}
+
+// Renderer that draws trade markers (triangles/arrows)
+class TradeMarkerRenderer {
+  private _entryCoord: { x: number | null; y: number | null };
+  private _exitCoord: { x: number | null; y: number | null };
+  private _options: TradeMarkerOptions;
+
+  constructor(
+    entryCoord: { x: number | null; y: number | null },
+    exitCoord: { x: number | null; y: number | null },
+    options: TradeMarkerOptions
+  ) {
+    this._entryCoord = entryCoord;
+    this._exitCoord = exitCoord;
+    this._options = options;
+  }
+
+  draw(target: any) {
+    target.useBitmapCoordinateSpace((scope: any) => {
+      const ctx = scope.context;
+      const hRatio = scope.horizontalPixelRatio;
+      const vRatio = scope.verticalPixelRatio;
+
+      // Draw entry marker (upward triangle for demand/buy, downward for supply/sell)
+      if (this._entryCoord.x !== null && this._entryCoord.y !== null) {
+        const ex = Math.round(this._entryCoord.x * hRatio);
+        const ey = Math.round(this._entryCoord.y * vRatio);
+        const size = 12 * hRatio;
+
+        // Entry marker - cyan/blue color for entry
+        ctx.fillStyle = '#00BCD4';
+        ctx.strokeStyle = '#00838F';
+        ctx.lineWidth = 2 * hRatio;
+
+        ctx.beginPath();
+        if (this._options.zoneType === 'demand') {
+          // Upward triangle (buy entry)
+          ctx.moveTo(ex, ey - size);
+          ctx.lineTo(ex - size * 0.7, ey + size * 0.5);
+          ctx.lineTo(ex + size * 0.7, ey + size * 0.5);
+        } else {
+          // Downward triangle (sell entry)
+          ctx.moveTo(ex, ey + size);
+          ctx.lineTo(ex - size * 0.7, ey - size * 0.5);
+          ctx.lineTo(ex + size * 0.7, ey - size * 0.5);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Entry label
+        ctx.fillStyle = '#00BCD4';
+        ctx.font = `bold ${10 * vRatio}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('ENTRY', ex, ey - size - 5 * vRatio);
+
+        // Entry price line (dashed horizontal)
+        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
+        ctx.strokeStyle = 'rgba(0, 188, 212, 0.6)';
+        ctx.lineWidth = 1 * hRatio;
+        ctx.beginPath();
+        ctx.moveTo(ex - 100 * hRatio, ey);
+        ctx.lineTo(ex + 100 * hRatio, ey);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw exit marker if available
+      if (this._exitCoord.x !== null && this._exitCoord.y !== null) {
+        const xx = Math.round(this._exitCoord.x * hRatio);
+        const xy = Math.round(this._exitCoord.y * vRatio);
+        const size = 12 * hRatio;
+
+        // Exit marker color based on outcome
+        const exitColor = this._options.outcome === 'WIN' ? '#4CAF50' :
+                          this._options.outcome === 'LOSS' ? '#FF5252' : '#FFC107';
+        const exitStroke = this._options.outcome === 'WIN' ? '#2E7D32' :
+                           this._options.outcome === 'LOSS' ? '#C62828' : '#FF8F00';
+
+        ctx.fillStyle = exitColor;
+        ctx.strokeStyle = exitStroke;
+        ctx.lineWidth = 2 * hRatio;
+
+        // Draw X mark for exit
+        ctx.beginPath();
+        ctx.moveTo(xx - size * 0.5, xy - size * 0.5);
+        ctx.lineTo(xx + size * 0.5, xy + size * 0.5);
+        ctx.moveTo(xx + size * 0.5, xy - size * 0.5);
+        ctx.lineTo(xx - size * 0.5, xy + size * 0.5);
+        ctx.stroke();
+
+        // Circle around X
+        ctx.beginPath();
+        ctx.arc(xx, xy, size * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Exit label
+        ctx.fillStyle = exitColor;
+        ctx.font = `bold ${10 * vRatio}px sans-serif`;
+        ctx.textAlign = 'center';
+        const exitLabel = this._options.outcome === 'WIN' ? 'TARGET' :
+                          this._options.outcome === 'LOSS' ? 'STOP' : 'EXIT';
+        ctx.fillText(exitLabel, xx, xy - size - 5 * vRatio);
+
+        // Exit price line (dashed horizontal)
+        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
+        ctx.strokeStyle = `${exitColor}99`;
+        ctx.lineWidth = 1 * hRatio;
+        ctx.beginPath();
+        ctx.moveTo(xx - 100 * hRatio, xy);
+        ctx.lineTo(xx + 100 * hRatio, xy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw connecting line between entry and exit
+      if (this._entryCoord.x !== null && this._entryCoord.y !== null &&
+          this._exitCoord.x !== null && this._exitCoord.y !== null) {
+        const ex = Math.round(this._entryCoord.x * hRatio);
+        const ey = Math.round(this._entryCoord.y * vRatio);
+        const xx = Math.round(this._exitCoord.x * hRatio);
+        const xy = Math.round(this._exitCoord.y * vRatio);
+
+        const lineColor = this._options.outcome === 'WIN' ? 'rgba(76, 175, 80, 0.4)' :
+                          this._options.outcome === 'LOSS' ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255, 193, 7, 0.4)';
+
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2 * hRatio;
+        ctx.setLineDash([10 * hRatio, 5 * hRatio]);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(xx, xy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+}
+
+// Pane view for trade markers
+class TradeMarkerPaneView {
+  private _source: TradeMarkerPrimitive;
+  private _entryCoord: { x: number | null; y: number | null } = { x: null, y: null };
+  private _exitCoord: { x: number | null; y: number | null } = { x: null, y: null };
+
+  constructor(source: TradeMarkerPrimitive) {
+    this._source = source;
+  }
+
+  update() {
+    const series = this._source.series;
+    const chart = this._source.chart;
+    if (!series || !chart) return;
+
+    const timeScale = chart.timeScale();
+    const options = this._source.options;
+
+    // Convert entry coordinates
+    this._entryCoord = {
+      x: timeScale.timeToCoordinate(options.entryTime),
+      y: series.priceToCoordinate(options.entryPrice)
+    };
+
+    // Convert exit coordinates if available
+    if (options.exitTime && options.exitPrice) {
+      this._exitCoord = {
+        x: timeScale.timeToCoordinate(options.exitTime),
+        y: series.priceToCoordinate(options.exitPrice)
+      };
+    } else {
+      this._exitCoord = { x: null, y: null };
+    }
+  }
+
+  renderer() {
+    return new TradeMarkerRenderer(this._entryCoord, this._exitCoord, this._source.options);
+  }
+}
+
+// Main Trade Marker Primitive class
+class TradeMarkerPrimitive {
+  private _chart: IChartApi | null = null;
+  private _series: ISeriesApi<SeriesType> | null = null;
+  private _paneViews: TradeMarkerPaneView[];
+  private _options: TradeMarkerOptions;
+  private _requestUpdate?: () => void;
+
+  constructor(options: TradeMarkerOptions) {
+    this._options = options;
+    this._paneViews = [new TradeMarkerPaneView(this)];
+  }
+
+  attached({ chart, series, requestUpdate }: any) {
+    this._chart = chart;
+    this._series = series;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._series = null;
+    this._requestUpdate = undefined;
+  }
+
+  get chart() { return this._chart; }
+  get series() { return this._series; }
+  get options() { return this._options; }
+
+  paneViews() {
+    return this._paneViews;
+  }
+
+  updateAllViews() {
+    this._paneViews.forEach(pv => pv.update());
+  }
+
+  requestUpdate() {
+    if (this._requestUpdate) {
+      this._requestUpdate();
+    }
+  }
+}
+
+// ============================================================================
 // Component Interfaces
 // ============================================================================
 
@@ -522,7 +757,7 @@ interface StockAggregate {
 }
 
 // Tab type definition
-type DashboardTab = 'charts' | 'trades' | 'strategy' | 'portfolio' | 'alerts';
+type DashboardTab = 'charts' | 'trades' | 'strategy' | 'portfolio' | 'alerts' | 'backtest';
 
 // Trades data interface
 interface Trade {
@@ -534,9 +769,14 @@ interface Trade {
   stopLoss: number;
   targetPrice: number;
   alertedAt: string;
+  alertTime: string;
+  zoneTop: number;
+  zoneBottom: number;
+  zoneStart: string;  // Zone formation start time
   retestDate: string | null;
   retestPrice: number | null;
   close5d: number | null;
+  return5d: number | null;
   adjustedReturn: number | null;
   outcome: 'WIN' | 'LOSS' | 'PENDING';
 }
@@ -578,6 +818,84 @@ interface StrategyData {
   };
 }
 
+// Backtest interfaces
+interface BacktestConfig {
+  symbol: string;
+  symbols: string[];  // Multi-symbol support
+  start_date: string;
+  end_date: string;
+  initial_capital: number;
+  risk_per_trade: number;
+  max_positions: number;
+  min_risk_reward: number;
+  holding_period: number;
+}
+
+interface BacktestTrade {
+  zone_id: number;
+  symbol: string;
+  zone_type: string;
+  direction: string;
+  entry_time: string;
+  exit_time: string;
+  entry_price: number;
+  exit_price: number;
+  stop_loss: number;
+  target_price: number;
+  shares: number;
+  capital_deployed: number;
+  pnl: number;
+  pnl_pct: number;
+  r_multiple: number;
+  status: string;
+  exit_reason: string;
+  days_held: number;
+}
+
+interface KellyParams {
+  win_rate: number;
+  avg_win_r: number;
+  avg_loss_r: number;
+  half_kelly_pct: number;
+  sample_size: number;
+}
+
+interface SymbolBreakdown {
+  symbol: string;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+}
+
+interface BacktestResults {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  total_return_pct: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  max_drawdown: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  avg_r_multiple: number;
+  final_capital: number;
+  kelly_params: KellyParams | null;
+  trades: BacktestTrade[];
+  equity_curve: Array<[string, number]>;
+  symbol_breakdown?: SymbolBreakdown[];  // Per-symbol stats for multi-symbol backtests
+}
+
+interface BacktestSymbol {
+  symbol: string;
+  id: number;
+  name: string;
+}
+
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user-admin@helwa.ai", role: "admin" });
@@ -611,6 +929,7 @@ export default function DashboardPage() {
   const drawingToolRef = useRef<RectangleDrawingTool | null>(null);
   const zonePrimitivesRef = useRef<ZonePrimitive[]>([]);
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
+  const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const pendingZoneSnapRef = useRef<string | null>(null);
   const [timeframe, setTimeframe] = useState("2m");
@@ -632,6 +951,31 @@ export default function DashboardPage() {
     bottomPrice: number;
     zoneType: string;
   } | null>(null);
+
+  // Trade marker state - for highlighting entry/exit when clicking from Trade History
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const pendingTradeRef = useRef<Trade | null>(null);
+
+  // Backtest state
+  const [backtestConfig, setBacktestConfig] = useState<BacktestConfig>({
+    symbol: '',
+    symbols: [],  // Multi-symbol support
+    start_date: '',
+    end_date: '',
+    initial_capital: 100000,
+    risk_per_trade: 0.02,
+    max_positions: 5,
+    min_risk_reward: 3.0,
+    holding_period: 5,
+  });
+  const [backtestSymbols, setBacktestSymbols] = useState<BacktestSymbol[]>([]);
+  const [multiSymbolMode, setMultiSymbolMode] = useState(false);  // Toggle for multi-symbol mode
+  const [backtestDateRange, setBacktestDateRange] = useState<{ min: string; max: string } | null>(null);
+  const [backtestResults, setBacktestResults] = useState<BacktestResults | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [backtestEngine, setBacktestEngine] = useState<string>('');
+
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
@@ -705,6 +1049,8 @@ export default function DashboardPage() {
       fetchPortfolioData();
     } else if (activeTab === 'strategy' && !strategyData) {
       fetchStrategyData();
+    } else if (activeTab === 'backtest' && backtestSymbols.length === 0) {
+      fetchBacktestSymbols();
     }
   }, [activeTab]);
 
@@ -754,6 +1100,121 @@ export default function DashboardPage() {
     } finally {
       setTabLoading(false);
     }
+  };
+
+  // Navigate to chart for a specific trade
+  const navigateToTrade = async (trade: Trade) => {
+    console.log('Navigating to trade:', trade);
+
+    // Store the trade for markers after chart loads
+    pendingTradeRef.current = trade;
+    setSelectedTrade(trade);
+
+    // Set the zone ID to snap to
+    pendingZoneSnapRef.current = trade.zoneId.toString();
+
+    // Switch to charts tab
+    setActiveTab('charts');
+
+    // Trigger zone search which will load the correct symbol and timeframe
+    setZoneSearchQuery(trade.zoneId.toString());
+
+    // Use the fetchStockDataWithZoneID function
+    await fetchStockDataWithZoneID(trade.zoneId.toString());
+  };
+
+  // Fetch backtest symbols
+  const fetchBacktestSymbols = async () => {
+    try {
+      const response = await fetch('/api/stocks/backtest?action=symbols');
+      const data = await response.json();
+      if (data.success) {
+        setBacktestSymbols(data.symbols);
+        // Set default symbol if available
+        if (data.symbols.length > 0 && !backtestConfig.symbol) {
+          const defaultSymbol = data.symbols[0].symbol;
+          setBacktestConfig(prev => ({ ...prev, symbol: defaultSymbol }));
+          fetchBacktestDateRange(defaultSymbol);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching backtest symbols:', err);
+    }
+  };
+
+  // Fetch backtest date range for a symbol
+  const fetchBacktestDateRange = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/stocks/backtest?action=date-range&symbol=${symbol}`);
+      const data = await response.json();
+      if (data.success) {
+        setBacktestDateRange({ min: data.min_date, max: data.max_date });
+        // Set default dates if not set
+        if (!backtestConfig.start_date || !backtestConfig.end_date) {
+          setBacktestConfig(prev => ({
+            ...prev,
+            start_date: data.min_date,
+            end_date: data.max_date
+          }));
+        }
+      } else {
+        setBacktestDateRange(null);
+      }
+    } catch (err) {
+      console.error('Error fetching backtest date range:', err);
+      setBacktestDateRange(null);
+    }
+  };
+
+  // Run backtest
+  const runBacktest = async () => {
+    setBacktestLoading(true);
+    setBacktestError(null);
+    setBacktestResults(null);
+
+    try {
+      // Build request payload based on mode
+      const payload = {
+        ...backtestConfig,
+        // In multi-symbol mode, use symbols array; in single mode, use symbol
+        symbols: multiSymbolMode ? backtestConfig.symbols : undefined,
+        symbol: multiSymbolMode ? undefined : backtestConfig.symbol,
+      };
+
+      const response = await fetch('/api/stocks/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setBacktestResults(data.results);
+        setBacktestEngine(data.engine);
+      } else {
+        setBacktestError(data.error || 'Backtest failed');
+      }
+    } catch (err: any) {
+      setBacktestError(err.message || 'Failed to run backtest');
+    } finally {
+      setBacktestLoading(false);
+    }
+  };
+
+  // Format currency helper
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  // Format percent helper
+  const formatPercent = (value: number) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
   // Fetch stock data based on symbol
@@ -1203,6 +1664,12 @@ export default function DashboardPage() {
         volumeProfilePrimitiveRef.current = null;
       }
 
+      // Clean up existing trade marker primitive
+      if (tradeMarkerPrimitiveRef.current) {
+        candlestickSeries.detachPrimitive(tradeMarkerPrimitiveRef.current);
+        tradeMarkerPrimitiveRef.current = null;
+      }
+
       // Create zone primitives using lightweight-charts primitive system
       if (zonesData && zonesData.zones && candleData.length > 0) {
         zonesData.zones.forEach((zone: any) => {
@@ -1356,16 +1823,59 @@ export default function DashboardPage() {
 
               console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
 
+              // Create trade markers if we navigated from Trade History
+              if (pendingTradeRef.current) {
+                const trade = pendingTradeRef.current;
+                console.log('Creating trade markers for:', trade);
+
+                // Calculate entry time - use alertTime or retestDate
+                const entryTimeStr = trade.retestDate || trade.alertTime;
+                const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
+                const entryPrice = trade.retestPrice || trade.entryPrice;
+
+                // Calculate exit time (5 days after entry) and exit price
+                let exitTime: Time | undefined;
+                let exitPrice: number | undefined;
+
+                if (trade.close5d !== null) {
+                  // Exit is 5 trading days after entry
+                  const entryDate = new Date(entryTimeStr);
+                  const exitDate = new Date(entryDate);
+                  exitDate.setDate(exitDate.getDate() + 7); // ~5 trading days
+                  exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
+                  exitPrice = trade.close5d;
+                }
+
+                // Create the trade marker primitive
+                const tradeMarker = new TradeMarkerPrimitive({
+                  entryTime,
+                  entryPrice,
+                  exitTime,
+                  exitPrice,
+                  outcome: trade.outcome,
+                  zoneType: trade.zoneType.toLowerCase() as 'demand' | 'supply'
+                });
+
+                candlestickSeries.attachPrimitive(tradeMarker);
+                tradeMarkerPrimitiveRef.current = tradeMarker;
+                console.log('Trade marker attached');
+
+                // Clear the pending trade
+                pendingTradeRef.current = null;
+              }
+
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
             } catch (err) {
               console.error('Error snapping to zone:', err);
               pendingZoneSnapRef.current = null;
+              pendingTradeRef.current = null;
             }
           }, 200);
         } else {
           console.warn(`Zone ${zoneId} not found in zones data`);
           pendingZoneSnapRef.current = null;
+          pendingTradeRef.current = null;
         }
       }
 
@@ -1396,6 +1906,12 @@ export default function DashboardPage() {
           volumeProfilePrimitiveRef.current = null;
         }
 
+        // Clean up trade marker primitive
+        if (tradeMarkerPrimitiveRef.current) {
+          candlestickSeries.detachPrimitive(tradeMarkerPrimitiveRef.current);
+          tradeMarkerPrimitiveRef.current = null;
+        }
+
         chart.remove();
         chartInstanceRef.current = null;
       };
@@ -1422,6 +1938,7 @@ export default function DashboardPage() {
           { icon: Target, label: "Strategy", tab: 'strategy' as DashboardTab },
           { icon: PieChart, label: "Portfolio", tab: 'portfolio' as DashboardTab },
           { icon: Bell, label: "Alerts", tab: 'alerts' as DashboardTab },
+          { icon: FlaskConical, label: "Backtest", tab: 'backtest' as DashboardTab },
         ].map((item, i) => (
           <button
             key={i}
@@ -1546,46 +2063,82 @@ export default function DashboardPage() {
                       </div>
                       {/* Trades Table */}
                       <div className="overflow-auto max-h-[600px]">
-                        <table className="w-full text-sm">
-                          <thead className="bg-elevated sticky top-0">
+                        <div className="flex items-center justify-between px-3 py-2 bg-elevated/50 border-b border-border">
+                          <span className="text-xs text-secondary">Click a trade to view on chart</span>
+                        </div>
+                        <table className="w-full text-sm min-w-[1000px]">
+                          <thead className="bg-elevated sticky top-0 z-10">
                             <tr className="text-left text-secondary">
                               <th className="p-3">Symbol</th>
                               <th className="p-3">Type</th>
-                              <th className="p-3">Entry</th>
-                              <th className="p-3">Stop</th>
-                              <th className="p-3">Target</th>
-                              <th className="p-3">Date</th>
-                              <th className="p-3">Return</th>
-                              <th className="p-3">Status</th>
+                              <th className="p-3 whitespace-nowrap">Alert Date</th>
+                              <th className="p-3 whitespace-nowrap">Retest Date</th>
+                              <th className="p-3 text-right">Entry</th>
+                              <th className="p-3 text-right">Exit (5d)</th>
+                              <th className="p-3 text-right">Stop</th>
+                              <th className="p-3 text-right">Target</th>
+                              <th className="p-3 text-right whitespace-nowrap">Position $</th>
+                              <th className="p-3 text-right">Return</th>
+                              <th className="p-3 text-center">Status</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {tradesData.trades.map((trade: Trade) => (
-                              <tr key={trade.alertId} className="border-t border-border hover:bg-elevated/50">
-                                <td className="p-3 font-medium text-primary">{trade.symbol}</td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-1 rounded text-xs ${trade.zoneType === 'demand' ? 'bg-success/20 text-success' : 'bg-red-500/20 text-red-400'}`}>
-                                    {trade.zoneType.toUpperCase()}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-primary">${trade.entryPrice?.toFixed(2)}</td>
-                                <td className="p-3 text-red-400">${trade.stopLoss?.toFixed(2)}</td>
-                                <td className="p-3 text-success">${trade.targetPrice?.toFixed(2)}</td>
-                                <td className="p-3 text-secondary">{new Date(trade.alertedAt).toLocaleDateString()}</td>
-                                <td className={`p-3 font-medium ${trade.adjustedReturn && trade.adjustedReturn >= 0 ? 'text-success' : 'text-red-500'}`}>
-                                  {trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-'}
-                                </td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-1 rounded text-xs ${
-                                    trade.outcome === 'WIN' ? 'bg-success/20 text-success' :
-                                    trade.outcome === 'LOSS' ? 'bg-red-500/20 text-red-400' :
-                                    'bg-yellow-500/20 text-yellow-400'
+                            {tradesData.trades.map((trade: Trade) => {
+                              // Calculate approximate position size (entry price * 100 shares as placeholder)
+                              const positionSize = trade.entryPrice ? trade.entryPrice * 100 : 0;
+                              return (
+                                <tr
+                                  key={trade.alertId}
+                                  onClick={() => navigateToTrade(trade)}
+                                  className="border-t border-border hover:bg-elevated/50 cursor-pointer transition-colors"
+                                  title="Click to view on chart"
+                                >
+                                  <td className="p-3 font-medium text-primary">
+                                    {trade.symbol}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-1 rounded text-xs ${trade.zoneType === 'demand' ? 'bg-success/20 text-success' : 'bg-red-500/20 text-red-400'}`}>
+                                      {trade.zoneType === 'demand' ? 'LONG' : 'SHORT'}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-secondary whitespace-nowrap">
+                                    {new Date(trade.alertedAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="p-3 text-secondary whitespace-nowrap">
+                                    {trade.retestDate ? new Date(trade.retestDate).toLocaleDateString() : '-'}
+                                  </td>
+                                  <td className="p-3 text-right text-primary">
+                                    ${trade.retestPrice?.toFixed(2) || trade.entryPrice?.toFixed(2)}
+                                  </td>
+                                  <td className={`p-3 text-right ${
+                                    trade.close5d && trade.retestPrice
+                                      ? (trade.zoneType === 'demand'
+                                          ? (trade.close5d > trade.retestPrice ? 'text-success' : 'text-red-400')
+                                          : (trade.close5d < trade.retestPrice ? 'text-success' : 'text-red-400'))
+                                      : 'text-secondary'
                                   }`}>
-                                    {trade.outcome}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
+                                    {trade.close5d ? `$${trade.close5d.toFixed(2)}` : '-'}
+                                  </td>
+                                  <td className="p-3 text-right text-red-400">${trade.stopLoss?.toFixed(2)}</td>
+                                  <td className="p-3 text-right text-accent">${trade.targetPrice?.toFixed(2)}</td>
+                                  <td className="p-3 text-right text-secondary whitespace-nowrap">
+                                    ${positionSize.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                  </td>
+                                  <td className={`p-3 text-right font-medium ${trade.adjustedReturn && trade.adjustedReturn >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                    {trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-'}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                      trade.outcome === 'WIN' ? 'bg-success/20 text-success' :
+                                      trade.outcome === 'LOSS' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-yellow-500/20 text-yellow-400'
+                                    }`}>
+                                      {trade.outcome}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1824,6 +2377,545 @@ export default function DashboardPage() {
                   <h2 className="text-lg font-bold text-primary mb-2">Alerts</h2>
                   <p className="text-sm text-secondary">Real-time zone alerts will appear here.</p>
                   <p className="text-xs text-secondary mt-2">Coming soon...</p>
+                </div>
+              </div>
+            )}
+
+            {/* BACKTEST TAB */}
+            {activeTab === 'backtest' && (
+              <div className="flex-1 flex overflow-hidden">
+                {/* Configuration Panel */}
+                <div className="w-80 border-r border-border bg-panel p-4 overflow-y-auto">
+                  <h2 className="text-lg font-medium flex items-center gap-2 mb-4">
+                    <Settings className="w-5 h-5" />
+                    Configuration
+                  </h2>
+
+                  <div className="space-y-4">
+                    {/* Multi-Symbol Mode Toggle */}
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-secondary">Multi-Symbol Mode</label>
+                      <button
+                        onClick={() => {
+                          setMultiSymbolMode(!multiSymbolMode);
+                          if (!multiSymbolMode) {
+                            // Switching to multi-symbol mode - clear single symbol
+                            setBacktestConfig({ ...backtestConfig, symbol: '', symbols: [] });
+                            setBacktestDateRange(null);
+                          } else {
+                            // Switching to single symbol mode - clear multi symbols
+                            setBacktestConfig({ ...backtestConfig, symbols: [] });
+                          }
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          multiSymbolMode ? 'bg-accent' : 'bg-elevated border border-border'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            multiSymbolMode ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Symbol Selection */}
+                    {!multiSymbolMode ? (
+                      // Single Symbol Mode
+                      <div>
+                        <label className="block text-sm text-secondary mb-1">Symbol</label>
+                        <select
+                          value={backtestConfig.symbol}
+                          onChange={(e) => {
+                            setBacktestConfig({ ...backtestConfig, symbol: e.target.value });
+                            fetchBacktestDateRange(e.target.value);
+                          }}
+                          className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                        >
+                          {backtestSymbols.map((s) => (
+                            <option key={s.symbol} value={s.symbol}>
+                              {s.symbol} - {s.name || 'Unknown'}
+                            </option>
+                          ))}
+                        </select>
+                        {backtestDateRange && (
+                          <p className="text-xs text-secondary mt-1">
+                            Data: {backtestDateRange.min} to {backtestDateRange.max}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      // Multi-Symbol Mode
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-sm text-secondary">
+                            Select Symbols ({backtestConfig.symbols.length} selected)
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setBacktestConfig({
+                                ...backtestConfig,
+                                symbols: backtestSymbols.map(s => s.symbol)
+                              })}
+                              className="text-xs text-accent hover:text-amber-400 transition-colors"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-secondary">|</span>
+                            <button
+                              onClick={() => setBacktestConfig({
+                                ...backtestConfig,
+                                symbols: []
+                              })}
+                              className="text-xs text-secondary hover:text-primary transition-colors"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                        <div className="bg-elevated border border-border rounded max-h-48 overflow-y-auto">
+                          {backtestSymbols.map((s) => (
+                            <label
+                              key={s.symbol}
+                              className="flex items-center px-3 py-2 hover:bg-panel cursor-pointer border-b border-border last:border-b-0"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={backtestConfig.symbols.includes(s.symbol)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setBacktestConfig({
+                                      ...backtestConfig,
+                                      symbols: [...backtestConfig.symbols, s.symbol]
+                                    });
+                                  } else {
+                                    setBacktestConfig({
+                                      ...backtestConfig,
+                                      symbols: backtestConfig.symbols.filter(sym => sym !== s.symbol)
+                                    });
+                                  }
+                                }}
+                                className="w-4 h-4 rounded border-border bg-background text-accent focus:ring-accent mr-3"
+                              />
+                              <span className="text-primary text-sm">{s.symbol}</span>
+                              <span className="text-secondary text-xs ml-2">- {s.name || 'Unknown'}</span>
+                            </label>
+                          ))}
+                        </div>
+                        {backtestConfig.symbols.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {backtestConfig.symbols.map(sym => (
+                              <span
+                                key={sym}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-accent/20 text-accent"
+                              >
+                                {sym}
+                                <button
+                                  onClick={() => setBacktestConfig({
+                                    ...backtestConfig,
+                                    symbols: backtestConfig.symbols.filter(s => s !== sym)
+                                  })}
+                                  className="ml-1 hover:text-white"
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs text-secondary mt-1">
+                          Pool multiple stocks to trade with shared capital
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Date Range */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm text-secondary mb-1">Start Date</label>
+                        <input
+                          type="date"
+                          value={backtestConfig.start_date}
+                          onChange={(e) => setBacktestConfig({ ...backtestConfig, start_date: e.target.value })}
+                          className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-secondary mb-1">End Date</label>
+                        <input
+                          type="date"
+                          value={backtestConfig.end_date}
+                          onChange={(e) => setBacktestConfig({ ...backtestConfig, end_date: e.target.value })}
+                          className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Capital */}
+                    <div>
+                      <label className="block text-sm text-secondary mb-1">Initial Capital</label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-secondary" />
+                        <input
+                          type="number"
+                          value={backtestConfig.initial_capital}
+                          onChange={(e) => setBacktestConfig({ ...backtestConfig, initial_capital: Number(e.target.value) })}
+                          className="w-full bg-elevated border border-border rounded pl-9 pr-3 py-2 text-primary focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Position Sizing Note */}
+                    <div className="bg-elevated/50 rounded-lg p-3">
+                      <p className="text-xs text-secondary">
+                        <span className="text-accent font-medium">Kelly Position Sizing</span>: Position size is calculated dynamically using Half-Kelly criterion based on historical win rate and R-multiples.
+                      </p>
+                    </div>
+
+                    {/* Min Risk/Reward */}
+                    <div>
+                      <label className="block text-sm text-secondary mb-1">Min Risk/Reward</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="1"
+                        max="10"
+                        value={backtestConfig.min_risk_reward}
+                        onChange={(e) => setBacktestConfig({ ...backtestConfig, min_risk_reward: Number(e.target.value) })}
+                        className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                      />
+                      <p className="text-xs text-secondary mt-1">{backtestConfig.min_risk_reward}:1 ratio</p>
+                    </div>
+
+                    {/* Max Positions */}
+                    <div>
+                      <label className="block text-sm text-secondary mb-1">Max Positions</label>
+                      <select
+                        value={backtestConfig.max_positions}
+                        onChange={(e) => setBacktestConfig({ ...backtestConfig, max_positions: Number(e.target.value) })}
+                        className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                      >
+                        <option value={1}>1 Position</option>
+                        <option value={2}>2 Positions</option>
+                        <option value={3}>3 Positions</option>
+                        <option value={5}>5 Positions</option>
+                        <option value={10}>10 Positions</option>
+                      </select>
+                      <p className="text-xs text-secondary mt-1">Concurrent trades allowed</p>
+                    </div>
+
+                    {/* Run Button */}
+                    <button
+                      onClick={runBacktest}
+                      disabled={
+                        backtestLoading ||
+                        !backtestConfig.start_date ||
+                        !backtestConfig.end_date ||
+                        (multiSymbolMode ? backtestConfig.symbols.length === 0 : !backtestConfig.symbol)
+                      }
+                      className="w-full bg-accent hover:bg-amber-600 text-background font-medium py-3 rounded flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {backtestLoading ? (
+                        <>
+                          <Activity className="w-5 h-5 animate-spin" />
+                          Running...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-5 h-5" />
+                          {multiSymbolMode ? `Run Backtest (${backtestConfig.symbols.length} symbols)` : 'Run Backtest'}
+                        </>
+                      )}
+                    </button>
+
+                    {backtestEngine && (
+                      <p className="text-xs text-secondary text-center">Engine: {backtestEngine}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Results Panel */}
+                <div className="flex-1 p-4 overflow-y-auto">
+                  {backtestError && (
+                    <div className="bg-red-900/20 border border-red-500/50 text-red-400 px-4 py-3 rounded mb-4">
+                      {backtestError}
+                    </div>
+                  )}
+
+                  {!backtestResults && !backtestLoading && (
+                    <div className="flex flex-col items-center justify-center h-full text-secondary">
+                      <FlaskConical className="w-16 h-16 mb-4 opacity-50" />
+                      <p className="text-lg">Configure and run a backtest to see results</p>
+                      <p className="text-sm mt-2">Select a symbol and date range, then click "Run Backtest"</p>
+                    </div>
+                  )}
+
+                  {backtestLoading && (
+                    <div className="flex flex-col items-center justify-center h-full text-secondary">
+                      <Activity className="w-16 h-16 mb-4 animate-spin text-accent" />
+                      <p className="text-lg">Running backtest...</p>
+                      <p className="text-sm mt-2">This may take a moment</p>
+                    </div>
+                  )}
+
+                  {backtestResults && (
+                    <div className="space-y-4">
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-4 gap-4">
+                        <div className="bg-panel border border-border rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Total Trades</div>
+                          <div className="text-2xl font-semibold">{backtestResults.total_trades ?? 0}</div>
+                        </div>
+                        <div className="bg-panel border border-border rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Win Rate</div>
+                          <div className={`text-2xl font-semibold ${(backtestResults.win_rate ?? 0) >= 0.5 ? 'text-success' : 'text-red-400'}`}>
+                            {formatPercent((backtestResults.win_rate ?? 0) * 100)}
+                          </div>
+                          <div className="text-xs text-secondary">{backtestResults.winning_trades ?? 0}W / {backtestResults.losing_trades ?? 0}L</div>
+                        </div>
+                        <div className="bg-panel border border-border rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Total P&L</div>
+                          <div className={`text-2xl font-semibold ${(backtestResults.total_pnl ?? 0) >= 0 ? 'text-success' : 'text-red-400'}`}>
+                            {formatCurrency(backtestResults.total_pnl ?? 0)}
+                          </div>
+                          <div className="text-xs text-secondary">{formatPercent(backtestResults.total_return_pct ?? 0)}</div>
+                        </div>
+                        <div className="bg-panel border border-border rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Final Capital</div>
+                          <div className={`text-2xl font-semibold ${(backtestResults.final_capital ?? 0) >= backtestConfig.initial_capital ? 'text-success' : 'text-red-400'}`}>
+                            {formatCurrency(backtestResults.final_capital ?? 0)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Performance Metrics */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Profit Factor</div>
+                          <div className="text-xl font-medium">
+                            {backtestResults.profit_factor === Infinity ? "Inf" : (backtestResults.profit_factor ?? 0).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Sharpe Ratio</div>
+                          <div className="text-xl font-medium">{(backtestResults.sharpe_ratio ?? 0).toFixed(2)}</div>
+                        </div>
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Avg R-Multiple</div>
+                          <div className="text-xl font-medium">{(backtestResults.avg_r_multiple ?? 0).toFixed(2)}R</div>
+                        </div>
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Avg Win</div>
+                          <div className="text-xl font-medium text-success">{formatCurrency(backtestResults.avg_win ?? 0)}</div>
+                        </div>
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Avg Loss</div>
+                          <div className="text-xl font-medium text-red-400">{formatCurrency(backtestResults.avg_loss ?? 0)}</div>
+                        </div>
+                        <div className="bg-elevated rounded-lg p-4">
+                          <div className="text-secondary text-sm mb-1">Max Drawdown</div>
+                          <div className="text-xl font-medium text-red-400">{formatPercent(backtestResults.max_drawdown_pct ?? 0)}</div>
+                        </div>
+                      </div>
+
+                      {/* Kelly Position Sizing Parameters */}
+                      {backtestResults.kelly_params && (
+                        <div className="bg-panel border border-accent/30 rounded-lg p-4">
+                          <h3 className="text-lg font-medium mb-3 text-accent">Kelly Position Sizing</h3>
+                          <div className="grid grid-cols-5 gap-4 text-sm">
+                            <div>
+                              <div className="text-secondary mb-1">Win Rate</div>
+                              <div className="font-medium">{((backtestResults.kelly_params.win_rate ?? 0) * 100).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                              <div className="text-secondary mb-1">Avg Win</div>
+                              <div className="font-medium text-success">{(backtestResults.kelly_params.avg_win_r ?? 0).toFixed(2)}R</div>
+                            </div>
+                            <div>
+                              <div className="text-secondary mb-1">Avg Loss</div>
+                              <div className="font-medium text-red-400">{(backtestResults.kelly_params.avg_loss_r ?? 0).toFixed(2)}R</div>
+                            </div>
+                            <div>
+                              <div className="text-secondary mb-1">Half-Kelly</div>
+                              <div className="font-medium text-accent">{(backtestResults.kelly_params.half_kelly_pct ?? 0).toFixed(1)}%</div>
+                            </div>
+                            <div>
+                              <div className="text-secondary mb-1">Sample Size</div>
+                              <div className="font-medium">{backtestResults.kelly_params.sample_size ?? 0} trades</div>
+                            </div>
+                          </div>
+                          <p className="text-xs text-secondary mt-2">Position size = Half-Kelly % of portfolio equity per trade</p>
+                        </div>
+                      )}
+
+                      {/* Symbol Breakdown (Multi-Symbol Mode) */}
+                      {backtestResults.symbol_breakdown && backtestResults.symbol_breakdown.length > 1 && (
+                        <div className="bg-panel border border-border rounded-lg overflow-hidden">
+                          <div className="px-4 py-3 border-b border-border">
+                            <h3 className="text-lg font-medium">Per-Symbol Breakdown</h3>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-elevated">
+                                <tr>
+                                  <th className="text-left px-4 py-2 text-secondary font-medium">Symbol</th>
+                                  <th className="text-right px-4 py-2 text-secondary font-medium">Trades</th>
+                                  <th className="text-right px-4 py-2 text-secondary font-medium">Win Rate</th>
+                                  <th className="text-right px-4 py-2 text-secondary font-medium">W/L</th>
+                                  <th className="text-right px-4 py-2 text-secondary font-medium">P&L</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {backtestResults.symbol_breakdown.map((sb, i) => (
+                                  <tr key={i} className="border-t border-border hover:bg-elevated/50">
+                                    <td className="px-4 py-2 font-medium">{sb.symbol}</td>
+                                    <td className="px-4 py-2 text-right">{sb.total_trades}</td>
+                                    <td className={`px-4 py-2 text-right ${(sb.win_rate ?? 0) >= 0.5 ? 'text-success' : 'text-red-400'}`}>
+                                      {((sb.win_rate ?? 0) * 100).toFixed(1)}%
+                                    </td>
+                                    <td className="px-4 py-2 text-right text-secondary">
+                                      {sb.winning_trades}W / {sb.losing_trades}L
+                                    </td>
+                                    <td className={`px-4 py-2 text-right ${(sb.total_pnl ?? 0) >= 0 ? 'text-success' : 'text-red-400'}`}>
+                                      {formatCurrency(sb.total_pnl ?? 0)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Equity Curve */}
+                      {backtestResults.equity_curve.length > 0 && (
+                        <div className="bg-panel border border-border rounded-lg p-4">
+                          <h3 className="text-lg font-medium mb-4">Equity Curve</h3>
+                          <div className="h-48 flex items-end gap-px">
+                            {backtestResults.equity_curve.map((point, i) => {
+                              const values = backtestResults.equity_curve.map(p => p[1]);
+                              const min = Math.min(...values);
+                              const max = Math.max(...values);
+                              const range = max - min || 1;
+                              const height = ((point[1] - min) / range) * 100;
+                              const isPositive = point[1] >= backtestConfig.initial_capital;
+
+                              return (
+                                <div
+                                  key={i}
+                                  className={`flex-1 min-w-[2px] rounded-t ${isPositive ? 'bg-success' : 'bg-red-500'}`}
+                                  style={{ height: `${Math.max(height, 2)}%` }}
+                                  title={`${point[0]}: ${formatCurrency(point[1])}`}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="flex justify-between text-xs text-secondary mt-2">
+                            <span>{backtestResults.equity_curve[0]?.[0]}</span>
+                            <span>{backtestResults.equity_curve[backtestResults.equity_curve.length - 1]?.[0]}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Trade List */}
+                      <div className="bg-panel border border-border rounded-lg overflow-hidden">
+                        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                          <h3 className="text-lg font-medium">Trades ({backtestResults.trades.length})</h3>
+                          <span className="text-xs text-secondary">Click a trade to view on chart</span>
+                        </div>
+                        <div className="max-h-[400px] overflow-auto">
+                          <table className="w-full text-sm min-w-[900px]">
+                            <thead className="bg-elevated sticky top-0 z-10">
+                              <tr>
+                                <th className="text-left px-3 py-2 text-secondary font-medium whitespace-nowrap">Entry Date</th>
+                                <th className="text-left px-3 py-2 text-secondary font-medium whitespace-nowrap">Exit Date</th>
+                                {multiSymbolMode && (
+                                  <th className="text-left px-3 py-2 text-secondary font-medium">Symbol</th>
+                                )}
+                                <th className="text-left px-3 py-2 text-secondary font-medium">Type</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">Entry</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">Exit</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">Target</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">Stop</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium whitespace-nowrap">Position $</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">P&L</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">R</th>
+                                <th className="text-center px-3 py-2 text-secondary font-medium">Exit Reason</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {backtestResults.trades.map((trade, i) => (
+                                <tr
+                                  key={i}
+                                  className="border-t border-border hover:bg-elevated/50 cursor-pointer transition-colors"
+                                  onClick={async () => {
+                                    // Extract zone_id (handle multi-symbol format: "SYMBOL_ZONEID")
+                                    const zoneIdStr = trade.zone_id.toString();
+                                    const actualZoneId = zoneIdStr.includes('_') ? zoneIdStr.split('_')[1] : zoneIdStr;
+                                    // Switch to charts tab and snap to the zone
+                                    setActiveTab('charts');
+                                    pendingZoneSnapRef.current = actualZoneId;
+                                    setZoneSearchQuery(actualZoneId);
+                                    await fetchStockDataWithZoneID(actualZoneId);
+                                  }}
+                                  title="Click to view on chart"
+                                >
+                                  <td className="px-3 py-2 text-secondary whitespace-nowrap">
+                                    {new Date(trade.entry_time).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-3 py-2 text-secondary whitespace-nowrap">
+                                    {trade.exit_time ? new Date(trade.exit_time).toLocaleDateString() : '-'}
+                                  </td>
+                                  {multiSymbolMode && (
+                                    <td className="px-3 py-2 font-medium">{trade.symbol}</td>
+                                  )}
+                                  <td className="px-3 py-2">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${
+                                      trade.direction === 'Long'
+                                        ? 'bg-success/20 text-success'
+                                        : 'bg-pink-500/20 text-pink-400'
+                                    }`}>
+                                      {trade.direction}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">${(trade.entry_price ?? 0).toFixed(2)}</td>
+                                  <td className={`px-3 py-2 text-right ${
+                                    (trade.exit_price ?? 0) > (trade.entry_price ?? 0)
+                                      ? (trade.direction === 'Long' ? 'text-success' : 'text-red-400')
+                                      : (trade.exit_price ?? 0) < (trade.entry_price ?? 0)
+                                        ? (trade.direction === 'Long' ? 'text-red-400' : 'text-success')
+                                        : 'text-secondary'
+                                  }`}>
+                                    ${(trade.exit_price ?? 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-accent">${(trade.target_price ?? 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right text-red-400">${(trade.stop_loss ?? 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    {formatCurrency(trade.capital_deployed ?? (trade.shares * trade.entry_price))}
+                                  </td>
+                                  <td className={`px-3 py-2 text-right font-medium ${(trade.pnl ?? 0) >= 0 ? 'text-success' : 'text-red-400'}`}>
+                                    {formatCurrency(trade.pnl ?? 0)}
+                                  </td>
+                                  <td className={`px-3 py-2 text-right ${(trade.r_multiple ?? 0) >= 0 ? 'text-success' : 'text-red-400'}`}>
+                                    {(trade.r_multiple ?? 0).toFixed(2)}R
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`px-2 py-0.5 rounded text-xs ${
+                                      trade.exit_reason === 'Target Hit' ? 'bg-success/20 text-success' :
+                                      trade.exit_reason === 'Stop Loss' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-gray-500/20 text-gray-400'
+                                    }`}>
+                                      {trade.exit_reason || trade.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

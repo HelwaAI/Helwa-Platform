@@ -126,6 +126,7 @@ export async function GET(request: Request) {
           alertedAt: row.alerted_at,
           zoneTop: parseFloat(row.zone_top),
           zoneBottom: parseFloat(row.zone_bottom),
+          zoneStart: row.zone_start,  // Zone formation start time
           retestDate: row.retest_date,
           retestPrice: row.retest_price ? parseFloat(row.retest_price) : null,
           close5d: row.close_5d ? parseFloat(row.close_5d) : null,
