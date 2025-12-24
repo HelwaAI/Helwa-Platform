@@ -1946,33 +1946,62 @@ export default function CryptoDashboardPage() {
             // Convert start_time to Unix timestamp in seconds
             const zoneStartTime = Math.floor(new Date(zone.start_time).getTime() / 1000);
 
-            // Determine zone end time by checking for breaks in candle data
-            // Default to last candle or 24h after start
+            // Use end_time from API if available, otherwise calculate based on break detection
             const lastCandle = candleData[candleData.length - 1];
-            let zoneEndTime: number = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+            let zoneEndTime: number;
             let isBroken = false;
 
-            // Find candles after zone start
-            const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+            // If zone.end_time is provided by API, use it as the zone duration
+            if (zone.end_time) {
+              zoneEndTime = Math.floor(new Date(zone.end_time).getTime() / 1000);
 
-            // Check each candle to see if it breaks the zone
-            // Zone is broken when ANY of OHLC values achieve full penetration past the zone
-            for (const candle of candlesAfterZone) {
-              if (isDemand) {
-                // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
-                if (candle.open < bottomPrice || candle.high < bottomPrice ||
-                  candle.low < bottomPrice || candle.close < bottomPrice) {
-                  zoneEndTime = candle.time;
-                  isBroken = true;
-                  break;
+              // Still check if zone was broken within this time range
+              const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime && c.time <= zoneEndTime);
+
+              for (const candle of candlesAfterZone) {
+                if (isDemand) {
+                  // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
+                  if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                    candle.low < bottomPrice || candle.close < bottomPrice) {
+                    isBroken = true;
+                    break;
+                  }
+                } else {
+                  // Supply zone broken if ANY of OHLC is above top price (full penetration)
+                  if (candle.open > topPrice || candle.high > topPrice ||
+                    candle.low > topPrice || candle.close > topPrice) {
+                    isBroken = true;
+                    break;
+                  }
                 }
-              } else {
-                // Supply zone broken if ANY of OHLC is above top price (full penetration)
-                if (candle.open > topPrice || candle.high > topPrice ||
-                  candle.low > topPrice || candle.close > topPrice) {
-                  zoneEndTime = candle.time;
-                  isBroken = true;
-                  break;
+              }
+            } else {
+              // Fallback: determine zone end time by checking for breaks in candle data
+              // Default to last candle or 24h after start
+              zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+
+              // Find candles after zone start
+              const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+
+              // Check each candle to see if it breaks the zone
+              // Zone is broken when ANY of OHLC values achieve full penetration past the zone
+              for (const candle of candlesAfterZone) {
+                if (isDemand) {
+                  // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
+                  if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                    candle.low < bottomPrice || candle.close < bottomPrice) {
+                    zoneEndTime = candle.time;
+                    isBroken = true;
+                    break;
+                  }
+                } else {
+                  // Supply zone broken if ANY of OHLC is above top price (full penetration)
+                  if (candle.open > topPrice || candle.high > topPrice ||
+                    candle.low > topPrice || candle.close > topPrice) {
+                    zoneEndTime = candle.time;
+                    isBroken = true;
+                    break;
+                  }
                 }
               }
             }
@@ -2003,7 +2032,10 @@ export default function CryptoDashboardPage() {
               startTime: new Date(zoneStartTime * 1000).toISOString(),
               endTime: new Date(zoneEndTime! * 1000).toISOString(),
               topPrice,
-              bottomPrice
+              bottomPrice,
+              usedApiEndTime: !!zone.end_time,
+              apiEndTime: zone.end_time || 'N/A',
+              duration: `${((zoneEndTime - zoneStartTime) / 60).toFixed(0)} minutes`
             });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
