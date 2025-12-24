@@ -491,7 +491,7 @@ class VolumeProfilePrimitive {
     }
   }
 }
-
+// testing commit
 // ============================================================================
 // Trade Marker Primitive - Visual indicators for trade entry/exit
 // ============================================================================
