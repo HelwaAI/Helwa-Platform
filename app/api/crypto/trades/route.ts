@@ -107,8 +107,13 @@ export async function GET(request: Request) {
       return sum + (parseFloat(t.r_multiple) || 0);
     }, 0);
 
+    const totalHours = closedTrades.reduce((sum: number, t: any) => {
+      return sum + (parseFloat(t.hours_to_exit) || 0);
+    }, 0);
+
     const avgPnlPercent = closedTrades.length > 0 ? totalPnlPercent / closedTrades.length : 0;
     const avgRMultiple = closedTrades.length > 0 ? totalRMultiple / closedTrades.length : 0;
+    const avgDaysHeld = closedTrades.length > 0 ? (totalHours / closedTrades.length / 24).toFixed(1) : null;
 
     return NextResponse.json({
       success: true,
@@ -167,9 +172,11 @@ export async function GET(request: Request) {
           avgPnlPercent: avgPnlPercent.toFixed(2),
           totalRMultiple: totalRMultiple.toFixed(2),
           avgRMultiple: avgRMultiple.toFixed(2),
+          avgDaysHeld: avgDaysHeld,
           // Legacy field mappings for backward compatibility
           totalReturn: totalPnlPercent.toFixed(2),
           avgReturn: avgPnlPercent.toFixed(2),
+          totalPnL: totalPnlPercent.toFixed(2),
         },
       },
       timestamp: new Date().toISOString(),
