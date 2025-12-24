@@ -1020,6 +1020,9 @@ export default function DashboardPage() {
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
+  console.log("Stock Trade Data: ", tradesData)
+  console.log("Stock Strategy Data: ", strategyData)
+
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
     fetch('/.auth/me')

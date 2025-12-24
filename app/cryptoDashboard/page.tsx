@@ -1,9 +1,10 @@
 "use client";
 
 import {
-  BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, Activity,
+  BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, TrendingDown, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
-  MessageSquare, Send, X, Search, Coins
+  MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign,
+  ChevronUp, ChevronDown
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -298,6 +299,169 @@ interface CryptoAggregate {
     volume: number;
   }>;
   last_updated: string;
+}
+
+// Tab type definition
+type DashboardTab = 'charts' | 'trades' | 'strategy' | 'portfolio' | 'alerts' | 'backtest';
+
+// Trades data interface
+interface Trade {
+  // New fields from historical_trades table
+  tradeId: number;
+  symbol: string;
+  zoneType: string;
+  zoneId: number;
+  zoneBottom: number;
+  zoneTop: number;
+  zoneHeight: number;
+  entryTime: string;
+  entryPrice: number;
+  entryCandleOpen: number | null;
+  stopPrice: number;
+  targetPrice: number;
+  targetType: string | null;
+  targetHvnPercentile: number | null;
+  riskAmount: number;
+  rewardAmount: number;
+  riskRewardRatio: number;
+  outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | null;
+  exitTime: string | null;
+  exitPrice: number | null;
+  exitReason: string | null;
+  minutesToExit: number | null;
+  tradingDaysToExit: number | null;
+  candlesToExit: number | null;
+  pnlPoints: number | null;
+  pnlPercent: number | null;
+  rMultiple: number | null;
+  discordAlerted: boolean;
+  timeframe: string | null;
+  // Legacy field mappings for backward compatibility
+  alertId: number;
+  stopLoss: number;
+  alertTime: string;
+  alertedAt: string;
+  zoneStart: string;
+  retestDate: string | null;
+  retestPrice: number | null;
+  close5d: number | null;
+  return5d: number | null;
+  adjustedReturn: number | null;
+}
+
+// Portfolio data interface
+interface PortfolioData {
+  performance: {
+    totalReturn: string;
+    sharpeRatio: string;
+    informationRatio: string;
+    maxDrawdown: string;
+    winRate: string;
+    avgReturn: string;
+    totalTrades: number;
+    wins: number;
+    losses: number;
+  };
+  byZoneType: {
+    demand: { trades: number; wins: number; winRate: string; totalReturn: string; avgReturn: string };
+    supply: { trades: number; wins: number; winRate: string; totalReturn: string; avgReturn: string };
+  };
+  equityCurve: Array<{ date: string; cumulative: string }>;
+}
+
+// Strategy data interface
+interface StrategyData {
+  zoneStats: Record<string, any>;
+  kellyParams: Record<string, any>;
+  imbalance: Array<{ symbol: string; demandZones: number; supplyZones: number; imbalance: number; bias: string }>;
+  summary: {
+    totalDemandZones: number;
+    totalSupplyZones: number;
+    freshDemandZones: number;
+    freshSupplyZones: number;
+    demandWinRate: string;
+    supplyWinRate: string;
+    demandKelly: string;
+    supplyKelly: string;
+  };
+}
+
+// Backtest interfaces
+interface BacktestConfig {
+  symbol: string;
+  symbols: string[];  // Multi-symbol support
+  start_date: string;
+  end_date: string;
+  initial_capital: number;
+  risk_per_trade: number;
+  max_positions: number;
+  min_risk_reward: number;
+  holding_period: number;
+}
+
+interface BacktestTrade {
+  zone_id: number;
+  symbol: string;
+  zone_type: string;
+  direction: string;
+  entry_time: string;
+  exit_time: string;
+  entry_price: number;
+  exit_price: number;
+  stop_loss: number;
+  target_price: number;
+  shares: number;
+  capital_deployed: number;
+  pnl: number;
+  pnl_pct: number;
+  r_multiple: number;
+  status: string;
+  exit_reason: string;
+  days_held: number;
+}
+
+interface KellyParams {
+  win_rate: number;
+  avg_win_r: number;
+  avg_loss_r: number;
+  half_kelly_pct: number;
+  sample_size: number;
+}
+
+interface SymbolBreakdown {
+  symbol: string;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+}
+
+interface BacktestResults {
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  total_pnl: number;
+  total_return_pct: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  max_drawdown: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  avg_r_multiple: number;
+  final_capital: number;
+  kelly_params: KellyParams | null;
+  trades: BacktestTrade[];
+  equity_curve: Array<[string, number]>;
+  symbol_breakdown?: SymbolBreakdown[];  // Per-symbol stats for multi-symbol backtests
+}
+
+interface BacktestSymbol {
+  symbol: string;
+  id: number;
+  name: string;
 }
 
 // ============================================================================
@@ -762,9 +926,14 @@ class TradeMarkerPrimitive {
 
 export default function CryptoDashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
-  const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "free" });
+  const [user, setUser] = useState<UserInfo>({ name: "User", email: "user@example.com", role: "admin" });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<DashboardTab>('charts');
+  const [tradesData, setTradesData] = useState<{ trades: Trade[]; summary: any } | null>(null);
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
+  const [strategyData, setStrategyData] = useState<StrategyData | null>(null);
+  const [tabLoading, setTabLoading] = useState(false);
   const [cryptoData, setCryptoData] = useState<CryptoAggregate | null>(null);
   const [zonesData, setZonesData] = useState<any>(null);
   const [fetching, setFetching] = useState(false);
@@ -794,6 +963,49 @@ export default function CryptoDashboardPage() {
     bottomPrice: number;
     zoneType: string;
   } | null>(null);
+  // State for hovered candle data (for dynamic stats display)
+  const [hoveredCandle, setHoveredCandle] = useState<{
+    high: number;
+    low: number;
+    volume: number;
+    dollarVolume: number;
+    open: number;
+    close: number;
+  } | null>(null);
+
+  // Trade marker state - for highlighting entry/exit when clicking from Trade History
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const pendingTradeRef = useRef<Trade | null>(null);
+
+  // Trade table sorting state
+  const [sortColumn, setSortColumn] = useState<string>('entryTime');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Show all trades on chart toggle
+  const [showTradesOnChart, setShowTradesOnChart] = useState(false);
+  const tradeMarkerPrimitivesRef = useRef<TradeMarkerPrimitive[]>([]);
+  const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
+
+  // Backtest state
+  const [backtestConfig, setBacktestConfig] = useState<BacktestConfig>({
+    symbol: '',
+    symbols: [],  // Multi-symbol support
+    start_date: '',
+    end_date: '',
+    initial_capital: 100000,
+    risk_per_trade: 0.02,
+    max_positions: 5,
+    min_risk_reward: 3.0,
+    holding_period: 5,
+  });
+  const [backtestSymbols, setBacktestSymbols] = useState<BacktestSymbol[]>([]);
+  const [multiSymbolMode, setMultiSymbolMode] = useState(false);  // Toggle for multi-symbol mode
+  const [backtestDateRange, setBacktestDateRange] = useState<{ min: string; max: string } | null>(null);
+  const [backtestResults, setBacktestResults] = useState<BacktestResults | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [backtestEngine, setBacktestEngine] = useState<string>('');
+
   // Volume Profile State
   const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
   const [showVolumeProfile, setShowVolumeProfile] = useState(false);
@@ -806,20 +1018,18 @@ export default function CryptoDashboardPage() {
   const [volumeProfileEndDate, setVolumeProfileEndDate] = useState(() => {
     return new Date().toISOString().split('T')[0]; // Format as YYYY-MM-DD
   });
-  // Volume Profile Time State - default 14:30 UTC (market open)
-  const [volumeProfileStartTime, setVolumeProfileStartTime] = useState("14:30");
-  const [volumeProfileEndTime, setVolumeProfileEndTime] = useState("14:30");
+  // Volume Profile Time State - default 00:00 UTC (crypto trades 24/7)
+  const [volumeProfileStartTime, setVolumeProfileStartTime] = useState("00:00");
+  const [volumeProfileEndTime, setVolumeProfileEndTime] = useState("23:59");
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
-  // Trades state
-  const [tradesData, setTradesData] = useState<any>(null);
-  const [showTradesOnChart, setShowTradesOnChart] = useState(false);
-  const tradeMarkerPrimitivesRef = useRef<TradeMarkerPrimitive[]>([]);
   // TEMPORARILY COMMENTED OUT FOR LOCAL DEVELOPMENT
   // Uncomment lines 47-66 below to restore Azure Easy Auth
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
+  console.log("Crypto Trade Data: ", tradesData)
+  console.log("Crypto Strategy Data: ", strategyData)
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -840,12 +1050,63 @@ export default function CryptoDashboardPage() {
       });
   }, []);
 
+  // Effect to read zoneId from URL parameters and automatically trigger zone search
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const zoneId = params.get('zoneId');
+    if (zoneId) {
+      // Populate the field
+      setZoneSearchQuery(zoneId);
+
+      // Automatically trigger the zone search
+      const performZoneSearch = async () => {
+        try {
+          // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+          await fetchCryptoDataWithZoneID(zoneId);
+
+          // Step 2: Set pending zone to snap to
+          pendingZoneSnapRef.current = zoneId;
+          console.log(`Auto-triggered zone search for ${zoneId}`);
+
+          // Step 3: Clear the search query
+          setZoneSearchQuery('');
+        } catch (error) {
+          console.error('Error auto-searching zone:', error);
+        }
+      };
+
+      performZoneSearch();
+    }
+  }, []);
+
   // Effect to refetch data when timeframe settings change
   useEffect(() => {
     if (searchQuery.trim()) {
       fetchCryptoData(searchQuery);
     }
   }, [timeframe, limit, hours]);
+
+  // Effect to fetch tab data when tab changes
+  useEffect(() => {
+    if (activeTab === 'trades' && !tradesData) {
+      fetchTradesData();
+    } else if (activeTab === 'strategy' && !strategyData) {
+      fetchStrategyData();
+    }
+    // Keep these commented until their APIs are ready
+    // else if (activeTab === 'portfolio' && !portfolioData) {
+    //   fetchPortfolioData();
+    // } else if (activeTab === 'backtest' && backtestSymbols.length === 0) {
+    //   fetchBacktestSymbols();
+    // }
+  }, [activeTab]);
+
+  // Effect to fetch trades when showTradesOnChart is enabled
+  useEffect(() => {
+    if (showTradesOnChart && !tradesData) {
+      fetchTradesData();
+    }
+  }, [showTradesOnChart]);
 
 
 
@@ -950,22 +1211,290 @@ export default function CryptoDashboardPage() {
   // Fetch crypto trades data
   const fetchTradesData = async () => {
     try {
+      setTabLoading(true);
+      console.log('Fetching crypto trades from /api/crypto/trades...');
       const response = await fetch('/api/crypto/trades?limit=5000');
+
+      // Check if response is OK and is JSON
+      if (!response.ok) {
+        console.warn('Trades API returned error status:', response.status);
+        setTradesData(null);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Trades API did not return JSON');
+        setTradesData(null);
+        return;
+      }
+
       const data = await response.json();
+      console.log('Crypto trades API response:', data);
+
       if (data.success) {
+        console.log('Setting tradesData:', data.data);
         setTradesData(data.data);
+      } else {
+        console.warn('Trades API returned success: false');
+        setTradesData(null);
       }
     } catch (err) {
       console.error('Error fetching crypto trades:', err);
+      setTradesData(null);
+    } finally {
+      setTabLoading(false);
     }
   };
 
-  // Effect to fetch trades when showTradesOnChart is enabled
-  useEffect(() => {
-    if (showTradesOnChart && !tradesData) {
-      fetchTradesData();
+  // Fetch portfolio data
+  const fetchPortfolioData = async () => {
+    try {
+      setTabLoading(true);
+      const response = await fetch('/api/crypto/portfolio');
+
+      // Check if response is OK and is JSON
+      if (!response.ok) {
+        console.warn('Portfolio API returned error status:', response.status);
+        setPortfolioData(null);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Portfolio API did not return JSON');
+        setPortfolioData(null);
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setPortfolioData(data.data);
+      } else {
+        setPortfolioData(null);
+      }
+    } catch (err) {
+      console.error('Error fetching portfolio:', err);
+      setPortfolioData(null);
+    } finally {
+      setTabLoading(false);
     }
-  }, [showTradesOnChart]);
+  };
+
+  // Fetch strategy data
+  const fetchStrategyData = async () => {
+    try {
+      setTabLoading(true);
+      console.log('Fetching crypto strategy from /api/crypto/strategy...');
+      const response = await fetch('/api/crypto/strategy');
+
+      // Check if response is OK and is JSON
+      if (!response.ok) {
+        console.warn('Strategy API returned error status:', response.status);
+        setStrategyData(null);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Strategy API did not return JSON');
+        setStrategyData(null);
+        return;
+      }
+
+      const data = await response.json();
+      console.log('Crypto strategy API response:', data);
+
+      if (data.success) {
+        console.log('Setting strategyData:', data.data);
+        setStrategyData(data.data);
+      } else {
+        console.warn('Strategy API returned success: false');
+        setStrategyData(null);
+      }
+    } catch (err) {
+      console.error('Error fetching strategy:', err);
+      setStrategyData(null);
+    } finally {
+      setTabLoading(false);
+    }
+  };
+
+  // Sort trades by column
+  const sortTrades = (trades: Trade[]): Trade[] => {
+    return [...trades].sort((a, b) => {
+      let aVal: any = a[sortColumn as keyof Trade];
+      let bVal: any = b[sortColumn as keyof Trade];
+
+      // Handle null/undefined values - push to end
+      if (aVal == null && bVal == null) return 0;
+      if (aVal == null) return 1;
+      if (bVal == null) return -1;
+
+      // Handle date strings
+      if (sortColumn === 'entryTime' || sortColumn === 'exitTime') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      }
+
+      // Handle numeric comparisons
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      // Handle string comparisons
+      const aStr = String(aVal).toLowerCase();
+      const bStr = String(bVal).toLowerCase();
+      if (sortDirection === 'asc') {
+        return aStr.localeCompare(bStr);
+      } else {
+        return bStr.localeCompare(aStr);
+      }
+    });
+  };
+
+  // Handle column sort click
+  const handleSortClick = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to descending
+      setSortColumn(column);
+      setSortDirection('desc');
+    }
+  };
+
+  // Navigate to chart for a specific trade
+  const navigateToTrade = async (trade: Trade) => {
+    console.log('Navigating to trade:', trade);
+
+    // Store the trade for markers after chart loads
+    pendingTradeRef.current = trade;
+    setSelectedTrade(trade);
+
+    // Set the zone ID to snap to
+    pendingZoneSnapRef.current = trade.zoneId.toString();
+
+    // Auto-enable Show Trades toggle
+    setShowTradesOnChart(true);
+
+    // Switch to charts tab
+    setActiveTab('charts');
+
+    // Trigger zone search which will load the correct symbol and timeframe
+    setZoneSearchQuery(trade.zoneId.toString());
+
+    // Use the fetchCryptoDataWithZoneID function
+    await fetchCryptoDataWithZoneID(trade.zoneId.toString());
+  };
+
+  // Fetch backtest symbols
+  const fetchBacktestSymbols = async () => {
+    try {
+      const response = await fetch('/api/crypto/backtest?action=symbols');
+
+      // Check if response is OK and is JSON
+      if (!response.ok) {
+        console.warn('Backtest symbols API returned error status:', response.status);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Backtest symbols API did not return JSON');
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setBacktestSymbols(data.symbols);
+        // Set default symbol if available
+        if (data.symbols.length > 0 && !backtestConfig.symbol) {
+          const defaultSymbol = data.symbols[0].symbol;
+          setBacktestConfig(prev => ({ ...prev, symbol: defaultSymbol }));
+          fetchBacktestDateRange(defaultSymbol);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching backtest symbols:', err);
+    }
+  };
+
+  // Fetch backtest date range for a symbol
+  const fetchBacktestDateRange = async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/crypto/backtest?action=date-range&symbol=${symbol}`);
+      const data = await response.json();
+      if (data.success) {
+        setBacktestDateRange({ min: data.min_date, max: data.max_date });
+        // Set default dates if not set
+        if (!backtestConfig.start_date || !backtestConfig.end_date) {
+          setBacktestConfig(prev => ({
+            ...prev,
+            start_date: data.min_date,
+            end_date: data.max_date
+          }));
+        }
+      } else {
+        setBacktestDateRange(null);
+      }
+    } catch (err) {
+      console.error('Error fetching backtest date range:', err);
+      setBacktestDateRange(null);
+    }
+  };
+
+  // Run backtest
+  const runBacktest = async () => {
+    setBacktestLoading(true);
+    setBacktestError(null);
+    setBacktestResults(null);
+
+    try {
+      // Build request payload based on mode
+      const payload = {
+        ...backtestConfig,
+        // In multi-symbol mode, use symbols array; in single mode, use symbol
+        symbols: multiSymbolMode ? backtestConfig.symbols : undefined,
+        symbol: multiSymbolMode ? undefined : backtestConfig.symbol,
+      };
+
+      const response = await fetch('/api/crypto/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setBacktestResults(data.results);
+        setBacktestEngine(data.engine);
+      } else {
+        setBacktestError(data.error || 'Backtest failed');
+      }
+    } catch (err: any) {
+      setBacktestError(err.message || 'Failed to run backtest');
+    } finally {
+      setBacktestLoading(false);
+    }
+  };
+
+  // Format currency helper
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  };
+
+  // Format percent helper
+  const formatPercent = (value: number) => {
+    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+  };
 
   // Fetch volume profile data
   const fetchVolumeProfile = async (symbol: string, numBins: number = 50) => {
@@ -1394,6 +1923,18 @@ export default function CryptoDashboardPage() {
       });
       zonePrimitivesRef.current = [];
 
+      // Clean up existing volume profile primitive
+      if (volumeProfilePrimitiveRef.current) {
+        candlestickSeries.detachPrimitive(volumeProfilePrimitiveRef.current);
+        volumeProfilePrimitiveRef.current = null;
+      }
+
+      // Clean up existing trade marker primitive
+      if (tradeMarkerPrimitiveRef.current) {
+        candlestickSeries.detachPrimitive(tradeMarkerPrimitiveRef.current);
+        tradeMarkerPrimitiveRef.current = null;
+      }
+
       // Create zone primitives using lightweight-charts primitive system
       if (zonesData && zonesData.zones && candleData.length > 0) {
         zonesData.zones.forEach((zone: any) => {
@@ -1489,8 +2030,66 @@ export default function CryptoDashboardPage() {
         console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
       }
 
-      // Add crosshair move handler for zone tooltips
+      // Initialize hoveredCandle with last available candle data
+      if (candleData.length > 0 && cryptoData.bars.length > 0) {
+        const lastCandle = candleData[candleData.length - 1];
+        const lastBar = cryptoData.bars[cryptoData.bars.length - 1];
+        const lastVolume = lastBar.volume || 0;
+        const lastVWAP = (lastCandle.high + lastCandle.low + lastCandle.close) / 3;
+        const lastDollarVolume = lastVolume * lastVWAP;
+
+        setHoveredCandle({
+          high: lastCandle.high,
+          low: lastCandle.low,
+          open: lastCandle.open,
+          close: lastCandle.close,
+          volume: lastVolume,
+          dollarVolume: lastDollarVolume,
+        });
+      }
+
+      // Add crosshair move handler for zone tooltips AND hover stats tracking
       chart.subscribeCrosshairMove((param) => {
+        // Handle hover stats (always track, even without param.point)
+        if (param.time && param.seriesData) {
+          const candleData = param.seriesData.get(candlestickSeries);
+          if (candleData && 'open' in candleData && 'high' in candleData && 'low' in candleData && 'close' in candleData) {
+            const { open, high, low, close } = candleData;
+            const timeValue = typeof param.time === 'number' ? param.time : Math.floor(new Date(param.time as string).getTime() / 1000);
+
+            // Find matching bar from cryptoData to get volume
+            const matchingBar = cryptoData.bars.find(bar => {
+              const barTime = Math.floor(new Date(bar.bucket).getTime() / 1000);
+              return barTime === timeValue;
+            });
+
+            const volume = matchingBar ? matchingBar.volume : 0;
+
+            // Calculate dollar volume as volume * VWAP (approximation)
+            const vwap = (high + low + close) / 3;
+            const dollarVolume = volume * vwap;
+
+            setHoveredCandle({ high, low, open, close, volume, dollarVolume });
+          }
+        } else if (candleData.length > 0 && cryptoData.bars.length > 0) {
+          // Fallback to last candle when cursor leaves chart
+          const lastCandle = candleData[candleData.length - 1];
+          const lastBar = cryptoData.bars[cryptoData.bars.length - 1];
+          const lastVolume = lastBar.volume || 0;
+          const lastVWAP = (lastCandle.high + lastCandle.low + lastCandle.close) / 3;
+          const lastDollarVolume = lastVolume * lastVWAP;
+
+          setHoveredCandle({
+            high: lastCandle.high,
+            low: lastCandle.low,
+            open: lastCandle.open,
+            close: lastCandle.close,
+            volume: lastVolume,
+            dollarVolume: lastDollarVolume,
+          });
+        }
+
+        // Handle zone tooltips (requires param.point)
         if (!param.point || !param.time || !zonesData || !zonesData.zones) {
           setZoneTooltip(null);
           return;
@@ -1552,16 +2151,59 @@ export default function CryptoDashboardPage() {
 
               console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
 
+              // Create trade markers if we navigated from Trade History
+              if (pendingTradeRef.current) {
+                const trade = pendingTradeRef.current;
+                console.log('Creating trade markers for:', trade);
+
+                // Calculate entry time - use retestDate or alertTime (matching stock dashboard)
+                const entryTimeStr = trade.retestDate || trade.alertTime;
+                const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
+                const entryPrice = trade.retestPrice || trade.entryPrice;
+
+                // Calculate exit time (5 days after entry) and exit price
+                let exitTime: Time | undefined;
+                let exitPrice: number | undefined;
+
+                if (trade.close5d !== null) {
+                  // Exit is 5 trading days after entry
+                  const entryDate = new Date(entryTimeStr);
+                  const exitDate = new Date(entryDate);
+                  exitDate.setDate(exitDate.getDate() + 7); // ~5 trading days
+                  exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
+                  exitPrice = trade.close5d;
+                }
+
+                // Create the trade marker primitive
+                const tradeMarker = new TradeMarkerPrimitive({
+                  entryTime,
+                  entryPrice,
+                  exitTime,
+                  exitPrice,
+                  outcome: trade.outcome,
+                  zoneType: trade.zoneType.toLowerCase() as 'demand' | 'supply'
+                });
+
+                candlestickSeries.attachPrimitive(tradeMarker);
+                tradeMarkerPrimitiveRef.current = tradeMarker;
+                console.log('Trade marker attached');
+
+                // Clear the pending trade
+                pendingTradeRef.current = null;
+              }
+
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
             } catch (err) {
               console.error('Error snapping to zone:', err);
               pendingZoneSnapRef.current = null;
+              pendingTradeRef.current = null;
             }
           }, 200);
         } else {
           console.warn(`Zone ${zoneId} not found in zones data`);
           pendingZoneSnapRef.current = null;
+          pendingTradeRef.current = null;
         }
       }
 
@@ -1596,10 +2238,10 @@ export default function CryptoDashboardPage() {
               exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
               exitPrice = trade.exitPrice || undefined;
             } else if (trade.close5d !== null && trade.close5d !== undefined) {
-              // Exit is ~5 days after entry for crypto
+              // Exit is ~5 trading days after entry
               const entryDate = new Date(entryTimeStr);
               const exitDate = new Date(entryDate);
-              exitDate.setDate(exitDate.getDate() + 5);
+              exitDate.setDate(exitDate.getDate() + 7);
               exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
               exitPrice = trade.close5d;
             }
@@ -1649,7 +2291,13 @@ export default function CryptoDashboardPage() {
           volumeProfilePrimitiveRef.current = null;
         }
 
-        // Clean up trade marker primitives
+        // Clean up trade marker primitive (single)
+        if (tradeMarkerPrimitiveRef.current) {
+          candlestickSeries.detachPrimitive(tradeMarkerPrimitiveRef.current);
+          tradeMarkerPrimitiveRef.current = null;
+        }
+
+        // Clean up multiple trade marker primitives
         tradeMarkerPrimitivesRef.current.forEach(primitive => {
           candlestickSeries.detachPrimitive(primitive);
         });
@@ -1673,28 +2321,30 @@ export default function CryptoDashboardPage() {
 
   return (
     <div className="h-screen flex bg-background overflow-hidden">
-      {/* Left Sidebar - TradingView style */}
+      {/* Left Sidebar - Tab Navigation */}
       <aside className="w-16 bg-panel border-r border-border/30 flex flex-col items-center py-4 gap-2">
         {/* Logo */}
         <Link href="/" className="w-10 h-10 bg-gradient-to-br from-accent to-accent-dark rounded flex items-center justify-center mb-4">
           <Coins className="h-5 w-5 text-white" />
         </Link>
 
-        {/* Nav icons */}
+        {/* Tab Navigation Icons */}
         {[
-          { icon: Home, label: "Dashboard", active: true },
-          { icon: LineChart, label: "Charts" },
-          { icon: TrendingUp, label: "Trades" },
-          { icon: Target, label: "Strategies" },
-          { icon: PieChart, label: "Portfolio" },
-          { icon: Bell, label: "Alerts" },
-        ].map((item, i) => (
+          { icon: LineChart, label: "Charts", tab: 'charts' as DashboardTab },
+          { icon: TrendingUp, label: "Trades", tab: 'trades' as DashboardTab },
+          { icon: FlaskConical, label: "Strategy", tab: 'strategy' as DashboardTab },
+          { icon: PieChart, label: "Portfolio", tab: 'portfolio' as DashboardTab },
+          { icon: Bell, label: "Alerts", tab: 'alerts' as DashboardTab },
+          { icon: Activity, label: "Backtest", tab: 'backtest' as DashboardTab },
+        ].map((item) => (
           <button
-            key={i}
-            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${item.active
-              ? 'bg-accent/10 text-accent'
-              : 'text-secondary hover:bg-elevated hover:text-primary'
-              }`}
+            key={item.tab}
+            onClick={() => setActiveTab(item.tab)}
+            className={`w-10 h-10 rounded flex items-center justify-center transition-colors ${
+              activeTab === item.tab
+                ? 'bg-accent/10 text-accent'
+                : 'text-secondary hover:bg-elevated hover:text-primary'
+            }`}
             title={item.label}
           >
             <item.icon className="h-5 w-5" />
@@ -1763,8 +2413,12 @@ export default function CryptoDashboardPage() {
 
         {/* Main Dashboard Grid */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Center: Chart and Stats Area */}
-          <div className="flex-1 flex flex-col">
+          {/* Center: Tab Content Area */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+
+            {/* CHARTS TAB */}
+            {activeTab === 'charts' && (
+              <div className="flex-1 flex flex-col">
             {/* Chart Container */}
             <div className="flex-1 p-4 pb-2">
               <div className="h-full bg-panel border border-border rounded-lg flex flex-col">
@@ -1978,13 +2632,33 @@ export default function CryptoDashboardPage() {
               </div>
             </div>
 
-            {/* Stats Container - Separate from Chart */}
+            {/* Stats Container - Separate from Chart - Dynamic Hover Stats */}
             <div className="px-4 pb-4">
               <div className="grid grid-cols-3 gap-10">
-              {cryptoData ? [
-                { label: 'Volume 24h', value: `${((Number(cryptoData.volume_24h) || 0) / 1_000_000).toFixed(1)}M`, change: `Shares`, up: true },
-                { label: 'High 24h', value: `$${Number(cryptoData.high_24h).toFixed(2)}`, change: `+${((Number(cryptoData.high_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.high_24h) > Number(cryptoData.latest_price) },
-                { label: 'Low 24h', value: `$${Number(cryptoData.low_24h).toFixed(2)}`, change: `${((Number(cryptoData.low_24h) - Number(cryptoData.latest_price)) / Number(cryptoData.latest_price) * 100).toFixed(2)}%`, up: Number(cryptoData.low_24h) < Number(cryptoData.latest_price) },
+              {cryptoData && hoveredCandle ? [
+                // Show candle data (hovered candle or last available candle)
+                {
+                  label: 'Dollar Volume',
+                  value: hoveredCandle.dollarVolume >= 1_000_000_000
+                    ? `$${(hoveredCandle.dollarVolume / 1_000_000_000).toFixed(2)}B`
+                    : hoveredCandle.dollarVolume >= 1_000_000
+                    ? `$${(hoveredCandle.dollarVolume / 1_000_000).toFixed(2)}M`
+                    : `$${(hoveredCandle.dollarVolume / 1_000).toFixed(2)}K`,
+                  change: `${(hoveredCandle.volume / 1_000_000).toFixed(2)}M shares`,
+                  up: true
+                },
+                {
+                  label: 'High',
+                  value: `$${hoveredCandle.high.toFixed(2)}`,
+                  change: `+${((hoveredCandle.high - hoveredCandle.close) / hoveredCandle.close * 100).toFixed(2)}%`,
+                  up: true
+                },
+                {
+                  label: 'Low',
+                  value: `$${hoveredCandle.low.toFixed(2)}`,
+                  change: `${((hoveredCandle.low - hoveredCandle.close) / hoveredCandle.close * 100).toFixed(2)}%`,
+                  up: false
+                },
               ].map((stat, i) => (
                 <div key={i} className="bg-panel border border-border rounded-lg p-4">
                   <div className="text-xs text-secondary mb-1">{stat.label}</div>
@@ -1994,12 +2668,515 @@ export default function CryptoDashboardPage() {
                   </div>
                 </div>
               )) : (
-                <div className="col-span-4 text-center text-secondary py-8">
-                  Search for a crypto symbol (e.g., BTC, ETH) to view statistics
+                <div className="col-span-3 text-center text-secondary py-8">
+                  Search for a crypto symbol (e.g., BTC, ETH, XRP) to view statistics
                 </div>
               )}
               </div>
             </div>
+              </div>
+            )}
+
+            {/* TRADES TAB */}
+            {activeTab === 'trades' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Trade History</h2>
+                    <p className="text-sm text-secondary">Crypto zone alerts and their outcomes</p>
+                  </div>
+                  {tabLoading ? (
+                    <div className="p-8 text-center text-secondary">Loading trades...</div>
+                  ) : tradesData ? (
+                    <>
+                      {/* Summary Stats */}
+                      <div className="p-4 grid grid-cols-6 gap-4 border-b border-border">
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Total Trades</div>
+                          <div className="text-xl font-bold text-primary">{tradesData.summary.totalTrades}</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Win Rate</div>
+                          <div className="text-xl font-bold text-success">{tradesData.summary.winRate}%</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Wins / Losses</div>
+                          <div className="text-xl font-bold">
+                            <span className="text-success">{tradesData.summary.wins}</span>
+                            <span className="text-secondary"> / </span>
+                            <span className="text-red-500">{tradesData.summary.losses}</span>
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Total P&L</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL) >= 0 ? '+' : ''}{tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL}%
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg P&L</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn}%
+                          </div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg R-Multiple</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? '+' : ''}{tradesData.summary.avgRMultiple || '0'}R
+                          </div>
+                        </div>
+                      </div>
+                      {/* Trades Table */}
+                      <div className="overflow-auto max-h-[600px]">
+                        <div className="flex items-center justify-between px-3 py-2 bg-elevated/50 border-b border-border">
+                          <span className="text-xs text-secondary">Click a trade to view on chart</span>
+                        </div>
+                        <table className="w-full text-sm min-w-[1200px]">
+                          <thead className="bg-elevated sticky top-0 z-10">
+                            <tr className="text-left text-secondary">
+                              <th className="p-3 cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('symbol')}>
+                                <div className="flex items-center gap-1">
+                                  Symbol
+                                  {sortColumn === 'symbol' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('zoneType')}>
+                                <div className="flex items-center gap-1">
+                                  Type
+                                  {sortColumn === 'zoneType' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 whitespace-nowrap cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('entryTime')}>
+                                <div className="flex items-center gap-1">
+                                  Entry Date
+                                  {sortColumn === 'entryTime' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 whitespace-nowrap cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitTime')}>
+                                <div className="flex items-center gap-1">
+                                  Exit Date
+                                  {sortColumn === 'exitTime' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('entryPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Entry
+                                  {sortColumn === 'entryPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Exit
+                                  {sortColumn === 'exitPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('stopPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Stop
+                                  {sortColumn === 'stopPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('targetPrice')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  Target
+                                  {sortColumn === 'targetPrice' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('riskRewardRatio')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  R:R
+                                  {sortColumn === 'riskRewardRatio' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('pnlPercent')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  P&L %
+                                  {sortColumn === 'pnlPercent' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-right cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('rMultiple')}>
+                                <div className="flex items-center justify-end gap-1">
+                                  R-Mult
+                                  {sortColumn === 'rMultiple' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-center cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('exitReason')}>
+                                <div className="flex items-center justify-center gap-1">
+                                  Exit Reason
+                                  {sortColumn === 'exitReason' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                              <th className="p-3 text-center cursor-pointer hover:text-primary select-none" onClick={() => handleSortClick('outcome')}>
+                                <div className="flex items-center justify-center gap-1">
+                                  Status
+                                  {sortColumn === 'outcome' && (sortDirection === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                </div>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortTrades(tradesData.trades).map((trade) => {
+                              return (
+                                <tr
+                                  key={trade.tradeId || trade.alertId}
+                                  onClick={() => navigateToTrade(trade)}
+                                  className="border-t border-border hover:bg-elevated/50 cursor-pointer transition-colors"
+                                  title="Click to view on chart"
+                                >
+                                  <td className="p-3 font-medium text-primary">
+                                    {trade.symbol}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-1 rounded text-xs ${trade.zoneType === 'demand' ? 'bg-success/20 text-success' : 'bg-red-500/20 text-red-400'}`}>
+                                      {trade.zoneType === 'demand' ? 'LONG' : 'SHORT'}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-secondary whitespace-nowrap">
+                                    {trade.entryTime ? new Date(trade.entryTime).toLocaleDateString() : new Date(trade.alertedAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="p-3 text-secondary whitespace-nowrap">
+                                    {trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : (trade.retestDate ? new Date(trade.retestDate).toLocaleDateString() : '-')}
+                                  </td>
+                                  <td className="p-3 text-right text-primary">
+                                    ${trade.entryPrice?.toFixed(2)}
+                                  </td>
+                                  <td className={`p-3 text-right ${
+                                    trade.exitPrice && trade.entryPrice
+                                      ? (trade.zoneType === 'demand'
+                                          ? (trade.exitPrice > trade.entryPrice ? 'text-success' : 'text-red-400')
+                                          : (trade.exitPrice < trade.entryPrice ? 'text-success' : 'text-red-400'))
+                                      : 'text-secondary'
+                                  }`}>
+                                    {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : (trade.close5d ? `$${trade.close5d.toFixed(2)}` : '-')}
+                                  </td>
+                                  <td className="p-3 text-right text-red-400">${(trade.stopPrice || trade.stopLoss)?.toFixed(2)}</td>
+                                  <td className="p-3 text-right text-accent">${trade.targetPrice?.toFixed(2)}</td>
+                                  <td className="p-3 text-right text-secondary">
+                                    {trade.riskRewardRatio ? trade.riskRewardRatio.toFixed(1) : '-'}
+                                  </td>
+                                  <td className={`p-3 text-right font-medium ${(trade.pnlPercent ?? trade.adjustedReturn ?? 0) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                    {trade.pnlPercent !== null ? `${trade.pnlPercent >= 0 ? '+' : ''}${trade.pnlPercent.toFixed(2)}%` : (trade.adjustedReturn !== null ? `${trade.adjustedReturn >= 0 ? '+' : ''}${trade.adjustedReturn.toFixed(2)}%` : '-')}
+                                  </td>
+                                  <td className={`p-3 text-right font-medium ${(trade.rMultiple ?? 0) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                    {trade.rMultiple !== null ? `${trade.rMultiple >= 0 ? '+' : ''}${trade.rMultiple.toFixed(2)}R` : '-'}
+                                  </td>
+                                  <td className="p-3 text-center text-xs text-secondary">
+                                    {trade.exitReason || '-'}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                      trade.outcome === 'WIN' ? 'bg-success/20 text-success' :
+                                      trade.outcome === 'LOSS' ? 'bg-red-500/20 text-red-400' :
+                                      trade.outcome === 'BREAKEVEN' ? 'bg-blue-500/20 text-blue-400' :
+                                      'bg-yellow-500/20 text-yellow-400'
+                                    }`}>
+                                      {trade.outcome || 'PENDING'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-8 text-center text-secondary">No trade data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* STRATEGY TAB */}
+            {activeTab === 'strategy' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Strategy Overview</h2>
+                    <p className="text-sm text-secondary">Supply/Demand zone statistics and Kelly parameters</p>
+                  </div>
+                  {tabLoading ? (
+                    <div className="p-8 text-center text-secondary">Loading strategy data...</div>
+                  ) : strategyData ? (
+                    <>
+                      {/* Summary Cards */}
+                      <div className="p-4 grid grid-cols-4 gap-4 border-b border-border">
+                        <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+                          <div className="text-xs text-secondary">Demand Zones</div>
+                          <div className="text-2xl font-bold text-success">{strategyData.summary.totalDemandZones}</div>
+                          <div className="text-xs text-success mt-1">{strategyData.summary.freshDemandZones} fresh</div>
+                        </div>
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                          <div className="text-xs text-secondary">Supply Zones</div>
+                          <div className="text-2xl font-bold text-red-400">{strategyData.summary.totalSupplyZones}</div>
+                          <div className="text-xs text-red-400 mt-1">{strategyData.summary.freshSupplyZones} fresh</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary">Demand Win Rate</div>
+                          <div className="text-2xl font-bold text-success">{strategyData.summary.demandWinRate}%</div>
+                          <div className="text-xs text-secondary mt-1">Kelly: {strategyData.summary.demandKelly}%</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-4">
+                          <div className="text-xs text-secondary">Supply Win Rate</div>
+                          <div className="text-2xl font-bold text-red-400">{strategyData.summary.supplyWinRate}%</div>
+                          <div className="text-xs text-secondary mt-1">Kelly: {strategyData.summary.supplyKelly}%</div>
+                        </div>
+                      </div>
+
+                      {/* Kelly Parameters */}
+                      <div className="p-4 border-b border-border">
+                        <h3 className="text-sm font-bold text-primary mb-3">Kelly Position Sizing Parameters</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          {strategyData.kellyParams.demand && (
+                            <div className="bg-success/10 border border-success/30 rounded-lg p-4">
+                              <h4 className="text-sm font-bold text-success mb-2">Demand (Long)</h4>
+                              <div className="grid grid-cols-4 gap-2 text-sm">
+                                <div><div className="text-xs text-secondary">Trades</div><div className="font-bold">{strategyData.kellyParams.demand.numTrades}</div></div>
+                                <div><div className="text-xs text-secondary">Win Rate</div><div className="font-bold">{strategyData.kellyParams.demand.winRate}%</div></div>
+                                <div><div className="text-xs text-secondary">Avg Win R</div><div className="font-bold text-success">{strategyData.kellyParams.demand.avgWinR}R</div></div>
+                                <div><div className="text-xs text-secondary">Half-Kelly</div><div className="font-bold text-accent">{strategyData.kellyParams.demand.halfKelly}%</div></div>
+                              </div>
+                            </div>
+                          )}
+                          {strategyData.kellyParams.supply && (
+                            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                              <h4 className="text-sm font-bold text-red-400 mb-2">Supply (Short)</h4>
+                              <div className="grid grid-cols-4 gap-2 text-sm">
+                                <div><div className="text-xs text-secondary">Trades</div><div className="font-bold">{strategyData.kellyParams.supply.numTrades}</div></div>
+                                <div><div className="text-xs text-secondary">Win Rate</div><div className="font-bold">{strategyData.kellyParams.supply.winRate}%</div></div>
+                                <div><div className="text-xs text-secondary">Avg Win R</div><div className="font-bold text-success">{strategyData.kellyParams.supply.avgWinR}R</div></div>
+                                <div><div className="text-xs text-secondary">Half-Kelly</div><div className="font-bold text-accent">{strategyData.kellyParams.supply.halfKelly}%</div></div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Supply/Demand Imbalance Table */}
+                      <div className="p-4">
+                        <h3 className="text-sm font-bold text-primary mb-3">Supply/Demand Imbalance by Symbol</h3>
+                        <div className="overflow-auto max-h-[300px]">
+                          <table className="w-full text-sm">
+                            <thead className="bg-elevated sticky top-0">
+                              <tr className="text-left text-secondary">
+                                <th className="p-3">Symbol</th>
+                                <th className="p-3">Demand Zones</th>
+                                <th className="p-3">Supply Zones</th>
+                                <th className="p-3">Imbalance</th>
+                                <th className="p-3">Bias</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {strategyData.imbalance.map((item: any) => (
+                                <tr key={item.symbol} className="border-t border-border hover:bg-elevated/50">
+                                  <td className="p-3 font-medium text-primary">{item.symbol}</td>
+                                  <td className="p-3 text-success">{item.demandZones}</td>
+                                  <td className="p-3 text-red-400">{item.supplyZones}</td>
+                                  <td className={`p-3 font-bold ${item.imbalance > 0 ? 'text-success' : item.imbalance < 0 ? 'text-red-500' : 'text-secondary'}`}>
+                                    {item.imbalance > 0 ? '+' : ''}{item.imbalance}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                      item.bias === 'BULLISH' ? 'bg-success/20 text-success' :
+                                      item.bias === 'BEARISH' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-gray-500/20 text-gray-400'
+                                    }`}>
+                                      {item.bias}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-8 text-center text-secondary">No strategy data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PORTFOLIO TAB */}
+            {activeTab === 'portfolio' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="space-y-4">
+                  {tabLoading ? (
+                    <div className="bg-panel border border-border rounded-lg p-8 text-center text-secondary">
+                      Loading portfolio data...
+                    </div>
+                  ) : portfolioData ? (
+                    <>
+                      {/* Performance Metrics */}
+                      <div className="bg-panel border border-border rounded-lg">
+                        <div className="bg-elevated p-4 border-b border-border">
+                          <h3 className="text-lg font-bold text-primary">Performance Metrics</h3>
+                          <p className="text-sm text-secondary">Overall trading performance</p>
+                        </div>
+                        <div className="p-4 grid grid-cols-3 gap-4">
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Total Return</div>
+                            <div className={`text-2xl font-bold ${Number(portfolioData.performance.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                              {Number(portfolioData.performance.totalReturn) >= 0 ? '+' : ''}{portfolioData.performance.totalReturn}
+                            </div>
+                          </div>
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Sharpe Ratio</div>
+                            <div className="text-2xl font-bold text-primary">{portfolioData.performance.sharpeRatio}</div>
+                          </div>
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Information Ratio</div>
+                            <div className="text-2xl font-bold text-primary">{portfolioData.performance.informationRatio}</div>
+                          </div>
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Max Drawdown</div>
+                            <div className="text-2xl font-bold text-red-500">{portfolioData.performance.maxDrawdown}</div>
+                          </div>
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Win Rate</div>
+                            <div className="text-2xl font-bold text-success">{portfolioData.performance.winRate}</div>
+                          </div>
+                          <div className="bg-background rounded-lg p-4">
+                            <div className="text-xs text-secondary mb-1">Avg Return</div>
+                            <div className={`text-2xl font-bold ${Number(portfolioData.performance.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                              {Number(portfolioData.performance.avgReturn) >= 0 ? '+' : ''}{portfolioData.performance.avgReturn}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* By Zone Type */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-panel border border-border rounded-lg">
+                          <div className="bg-elevated p-4 border-b border-border">
+                            <h4 className="font-bold text-success">Demand Zones Performance</h4>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Total Trades</span>
+                              <span className="text-sm font-medium text-primary">{portfolioData.byZoneType.demand.trades}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Wins</span>
+                              <span className="text-sm font-medium text-success">{portfolioData.byZoneType.demand.wins}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Win Rate</span>
+                              <span className="text-sm font-bold text-success">{portfolioData.byZoneType.demand.winRate}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Total Return</span>
+                              <span className={`text-sm font-bold ${Number(portfolioData.byZoneType.demand.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                {Number(portfolioData.byZoneType.demand.totalReturn) >= 0 ? '+' : ''}{portfolioData.byZoneType.demand.totalReturn}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Avg Return</span>
+                              <span className={`text-sm font-medium ${Number(portfolioData.byZoneType.demand.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                {Number(portfolioData.byZoneType.demand.avgReturn) >= 0 ? '+' : ''}{portfolioData.byZoneType.demand.avgReturn}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-panel border border-border rounded-lg">
+                          <div className="bg-elevated p-4 border-b border-border">
+                            <h4 className="font-bold text-red-500">Supply Zones Performance</h4>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Total Trades</span>
+                              <span className="text-sm font-medium text-primary">{portfolioData.byZoneType.supply.trades}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Wins</span>
+                              <span className="text-sm font-medium text-success">{portfolioData.byZoneType.supply.wins}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Win Rate</span>
+                              <span className="text-sm font-bold text-success">{portfolioData.byZoneType.supply.winRate}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Total Return</span>
+                              <span className={`text-sm font-bold ${Number(portfolioData.byZoneType.supply.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                {Number(portfolioData.byZoneType.supply.totalReturn) >= 0 ? '+' : ''}{portfolioData.byZoneType.supply.totalReturn}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-secondary">Avg Return</span>
+                              <span className={`text-sm font-medium ${Number(portfolioData.byZoneType.supply.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
+                                {Number(portfolioData.byZoneType.supply.avgReturn) >= 0 ? '+' : ''}{portfolioData.byZoneType.supply.avgReturn}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Equity Curve Placeholder */}
+                      <div className="bg-panel border border-border rounded-lg">
+                        <div className="bg-elevated p-4 border-b border-border">
+                          <h4 className="font-bold text-primary">Equity Curve</h4>
+                          <p className="text-sm text-secondary">Cumulative returns over time</p>
+                        </div>
+                        <div className="p-8 text-center text-secondary">
+                          <LineChart className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">Chart visualization coming soon</p>
+                          <p className="text-xs mt-1">{portfolioData.equityCurve.length} data points available</p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bg-panel border border-border rounded-lg p-8 text-center text-secondary">
+                      No portfolio data available
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ALERTS TAB */}
+            {activeTab === 'alerts' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Alerts</h2>
+                    <p className="text-sm text-secondary">Real-time crypto zone alerts</p>
+                  </div>
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Bell className="h-8 w-8 text-accent" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2 text-primary">Alerts Coming Soon</h3>
+                    <p className="text-secondary max-w-md mx-auto">
+                      Get notified when price enters supply/demand zones. Real-time Discord and email alerts.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* BACKTEST TAB - Coming in next edit due to size */}
+            {activeTab === 'backtest' && (
+              <div className="flex-1 p-4 overflow-auto">
+                <div className="bg-panel border border-border rounded-lg">
+                  <div className="bg-elevated p-4 border-b border-border">
+                    <h2 className="text-lg font-bold text-primary">Backtest</h2>
+                    <p className="text-sm text-secondary">Test crypto zone strategy performance</p>
+                  </div>
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Activity className="h-8 w-8 text-accent" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2 text-primary">Backtest Coming Soon</h3>
+                    <p className="text-secondary max-w-md mx-auto">
+                      Historical simulation of crypto zone trading strategy with Kelly position sizing.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
 
           {/* Right: AI Chat Panel */}
