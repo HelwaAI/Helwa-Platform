@@ -1808,10 +1808,10 @@ export default function DashboardPage() {
             let isBroken = false;
 
             // If zone.broken_at is provided by API, use it as the zone end time
-            // if (zone.broken_at) {
-            //   zoneEndTime = Math.floor(new Date(zone.broken_at).getTime() / 1000);
-            //   isBroken = true;
-            // } else {
+            if (zone.broken_at) {
+              zoneEndTime = Math.floor(new Date(zone.broken_at).getTime() / 1000);
+              isBroken = true;
+            } else {
               // Fallback: determine zone end time by checking for breaks in candle data
               // Default to last candle or 24h after start
               zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
@@ -1840,7 +1840,7 @@ export default function DashboardPage() {
                   }
                 }
               }
-            // }
+            }
 
             // Colors for demand (green) and supply (red) zones
             const fillColor = isDemand ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 82, 82, 0.3)';
