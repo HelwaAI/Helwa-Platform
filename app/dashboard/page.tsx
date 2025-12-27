@@ -1808,8 +1808,8 @@ export default function DashboardPage() {
             let isBroken = false;
 
             // If zone.broken_at is provided by API, use it as the zone end time
-            if (zone.broken_at) {
-              zoneEndTime = Math.floor(new Date(zone.broken_at).getTime() / 1000);
+            if (zone.visual_broken_time) {
+              zoneEndTime = Math.floor(new Date(zone.visual_broken_time).getTime() / 1000);
               isBroken = true;
             } else {
               // Fallback: determine zone end time by checking for breaks in candle data

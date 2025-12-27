@@ -67,7 +67,8 @@ export async function GET(request: Request) {
             z.timeframe_id,
             z.start_time,
             z.end_time,
-            z.broken_at
+            z.broken_at,
+            z.visual_broken_time
         FROM stocks.zones z
         JOIN stocks.symbols s ON z.symbol_id = s.id
         JOIN stocks.timeframes st ON z.timeframe_id = st.id
@@ -97,6 +98,7 @@ export async function GET(request: Request) {
         created_at: row.created_at,
         updated_at: row.updated_at,
         broken_at: row.broken_at,
+        visual_broken_time: row.visual_broken_time
       });
     });
 
