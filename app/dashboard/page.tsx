@@ -956,10 +956,12 @@ export default function DashboardPage() {
   const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const pendingZoneSnapRef = useRef<string | null>(null);
+  const pendingRetestTimeRef = useRef<string | null>(null); // Store visual_retest_time for snapping
   const [timeframe, setTimeframe] = useState("2m");
   const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
   const [zoneSearchQuery, setZoneSearchQuery] = useState("");
+  const [zoneRetestIdSearchQuery, setZoneRetestIdSearchQuery] = useState("");
   const [selectedTimeframeKey, setSelectedTimeframeKey] = useState("2min");
   const [entryTargetStopLoss, setEntryTargetStopLoss] = useState<Record<string, {
     entry_price: number;
@@ -1665,6 +1667,43 @@ export default function DashboardPage() {
     }
   };
 
+  // Handle zone retest ID search - fetch zone_id from retest ID and auto-trigger zone search
+  const handleZoneRetestIdSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    console.log('handleZoneRetestIdSearch called, key:', e.key);
+    if (e.key === 'Enter') {
+      const retestId = zoneRetestIdSearchQuery.trim();
+      console.log('Retest ID entered:', retestId);
+      if (!retestId) {
+        return;
+      }
+
+      try {
+        // Call the searchZoneFirstRetestId API
+        const response = await fetch(`/api/stocks/searchZoneFirstRetestId?ZoneFirstRetestId=${retestId}`);
+        const result = await response.json();
+        console.log('API response:', result);
+
+        if (result.success && result.data?.zone_id) {
+          const zoneId = result.data.zone_id;
+          const visual_retest_time = result.data.visual_retest_time;
+          console.log("Retest: ", visual_retest_time);
+          console.log("Zone ID: ", zoneId);
+          // Automatically trigger zone search with the fetched zone_id
+          await fetchStockDataWithZoneID(zoneId);
+          pendingZoneSnapRef.current = zoneId;
+          pendingRetestTimeRef.current = visual_retest_time; // Store retest time for snapping
+        } else {
+          console.error('Failed to fetch zone_id:', result.error);
+        }
+      } catch (error) {
+        console.error('Error fetching zone retest ID:', error);
+      }
+
+      // Clear the search query
+      setZoneRetestIdSearchQuery('');
+    }
+  };
+
   // Initialize candlestick chart when stockData changes
   useEffect(() => {
     if (!stockData || !chartContainerRef.current) return;
@@ -2001,16 +2040,20 @@ export default function DashboardPage() {
           // Small delay to ensure zones are fully rendered
           setTimeout(() => {
             try {
-              const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
-              const leftPadding = 3600; // 1 hour before zone start
-              const rightWindow = 259200; // 3 days after zone start
+              // Use visual_retest_time if available (from retest ID search), otherwise use zone start_time
+              const snapCenterTime = pendingRetestTimeRef.current
+                ? Math.floor(new Date(pendingRetestTimeRef.current).getTime() / 1000)
+                : Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+
+              const leftPadding = 3600; // 1 hour before snap point
+              const rightWindow = 259200; // 3 days after snap point
 
               chart.timeScale().setVisibleRange({
-                from: (zoneStartTime - leftPadding) as Time,
-                to: (zoneStartTime + rightWindow) as Time,
+                from: (snapCenterTime - leftPadding) as Time,
+                to: (snapCenterTime + rightWindow) as Time,
               });
 
-              // console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
+              // console.log(`Successfully snapped to ${pendingRetestTimeRef.current ? 'retest time' : 'zone'} ${zoneId} at ${new Date(snapCenterTime * 1000).toISOString()}`);
 
               // Create trade markers if we navigated from Trade History
               if (pendingTradeRef.current) {
@@ -2055,6 +2098,7 @@ export default function DashboardPage() {
 
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
+              pendingRetestTimeRef.current = null;
 
               // Render all trades for the current symbol if showTradesOnChart is enabled
               if (showTradesOnChart && tradesData && stockData) {
@@ -2109,12 +2153,14 @@ export default function DashboardPage() {
             } catch (err) {
               console.error('Error snapping to zone:', err);
               pendingZoneSnapRef.current = null;
+              pendingRetestTimeRef.current = null;
               pendingTradeRef.current = null;
             }
           }, 200);
         } else {
           console.warn(`Zone ${zoneId} not found in zones data`);
           pendingZoneSnapRef.current = null;
+          pendingRetestTimeRef.current = null;
           pendingTradeRef.current = null;
         }
       }
@@ -3349,6 +3395,18 @@ export default function DashboardPage() {
                       value={zoneSearchQuery}
                       onChange={(e) => setZoneSearchQuery(e.target.value)}
                       onKeyDown={handleZoneIdSearch}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="ZoneRetestID... Press Enter"
+                      value={zoneRetestIdSearchQuery}
+                      onChange={(e) => setZoneRetestIdSearchQuery(e.target.value)}
+                      onKeyDown={handleZoneRetestIdSearch}
                       disabled={fetching}
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
