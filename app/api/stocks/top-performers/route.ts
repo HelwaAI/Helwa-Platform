@@ -25,29 +25,26 @@ export async function GET(request: Request) {
     // Query for top performing stocks that were ACTUALLY ALERTED by the production system
     // Only includes zones from zone_touch_events where alerted = true
     const query = `
-      SELECT * FROM (
-        SELECT DISTINCT ON (s.symbol)
-            s.symbol,
-            zte.zone_id,
-            z.zone_type,
-            DATE(zte.entry_time) AS bounce_day,
-            c.bounce_close,
-            c.penetration_pct,
-            c.return_1d,
-            c.return_2d,
-            c.return_3d,
-            c.return_5d,
-            c.zone_low,
-            c.zone_high
-        FROM stocks.zone_touch_events zte
-        JOIN stocks.zones z ON zte.zone_id = z.zone_id
-        JOIN stocks.symbols s ON z.symbol_id = s.id
-        JOIN stocks.zone_first_retests_cache c ON zte.zone_id = c.zone_id
-        WHERE zte.alerted = true
+    SELECT * FROM (
+          SELECT DISTINCT ON (s.symbol)
+              s.symbol,
+              z.zone_type,
+              DATE(zte.entry_time) AS bounce_day,
+              c.bounce_close,
+              c.return_1d,
+              c.return_2d,
+              c.return_3d,
+              c.return_5d,
+              zte.zone_id
+          FROM stocks.zone_touch_events zte
+          JOIN stocks.zones z ON zte.zone_id = z.zone_id
+          JOIN stocks.symbols s ON z.symbol_id = s.id
+          JOIN stocks.zone_first_retests_cache c ON zte.zone_id = c.zone_id
+          WHERE zte.alerted = true
             AND z.zone_type = 'demand'
-            AND zte.entry_time >= CURRENT_DATE - INTERVAL '22 days'
             AND c.return_5d IS NOT NULL
-        ORDER BY s.symbol, c.return_5d DESC
+            AND zte.entry_time >= CURRENT_DATE - INTERVAL '22 days'
+          ORDER BY s.symbol, c.return_5d DESC
       ) best_per_symbol
       ORDER BY return_5d DESC
       LIMIT 3
