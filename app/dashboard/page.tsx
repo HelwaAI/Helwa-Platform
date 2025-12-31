@@ -957,6 +957,8 @@ export default function DashboardPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const pendingZoneSnapRef = useRef<string | null>(null);
   const pendingRetestTimeRef = useRef<string | null>(null); // Store visual_retest_time for snapping
+  const snapTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Store snap timeout ID to cancel if needed
+  const lastSnappedZoneRef = useRef<string | null>(null); // Track last snapped zone to prevent duplicate snaps
   const [timeframe, setTimeframe] = useState("2m");
   const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
@@ -1111,7 +1113,7 @@ export default function DashboardPage() {
   const fetchTradesData = async () => {
     try {
       setTabLoading(true);
-      const response = await fetch('/api/stocks/trades?limit=5000');
+      const response = await fetch('/api/stocks/trades');
       const data = await response.json();
       if (data.success) {
         setTradesData(data.data);
@@ -1654,13 +1656,15 @@ export default function DashboardPage() {
         return;
       }
 
-      // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
-      await fetchStockDataWithZoneID(zoneId);
-
-      // Step 2: Set pending zone to snap to
-      // The useEffect watching zonesData will handle the actual snapping
+      // Step 1: Set pending zone to snap to BEFORE fetching
+      // This ensures the ref is ready when useEffect runs
       pendingZoneSnapRef.current = zoneId;
+      lastSnappedZoneRef.current = null; // Clear previous snap to allow new snap
       // console.log(`Set pending zone snap to ${zoneId}`);
+
+      // Step 2: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+      // The useEffect watching zonesData will handle the actual snapping
+      await fetchStockDataWithZoneID(zoneId);
 
       // Clear the search query
       setZoneSearchQuery('');
@@ -1688,10 +1692,12 @@ export default function DashboardPage() {
           const visual_retest_time = result.data.visual_retest_time;
           console.log("Retest: ", visual_retest_time);
           console.log("Zone ID: ", zoneId);
-          // Automatically trigger zone search with the fetched zone_id
-          await fetchStockDataWithZoneID(zoneId);
+          // Set pending refs BEFORE fetching so they're ready when useEffect runs
           pendingZoneSnapRef.current = zoneId;
           pendingRetestTimeRef.current = visual_retest_time; // Store retest time for snapping
+          lastSnappedZoneRef.current = null; // Clear previous snap to allow new snap
+          // Automatically trigger zone search with the fetched zone_id
+          await fetchStockDataWithZoneID(zoneId);
         } else {
           console.error('Failed to fetch zone_id:', result.error);
         }
@@ -1809,8 +1815,10 @@ export default function DashboardPage() {
         });
       }
 
-      // Fit content to view
-      chart.timeScale().fitContent();
+      // Fit content to view (skip if we have a pending snap OR just snapped to a zone)
+      if (!pendingZoneSnapRef.current && !pendingRetestTimeRef.current && !lastSnappedZoneRef.current) {
+        chart.timeScale().fitContent();
+      }
 
       // Clean up existing zone primitives
       zonePrimitivesRef.current.forEach(primitive => {
@@ -2032,28 +2040,116 @@ export default function DashboardPage() {
       });
 
       // Check if there's a pending zone to snap to after chart and zones are ready
+      console.log('[SNAP] Checking snap condition - pendingZone:', pendingZoneSnapRef.current, 'hasZonesData:', !!zonesData, 'hasZones:', !!zonesData?.zones);
       if (pendingZoneSnapRef.current && zonesData && zonesData.zones) {
         const zoneId = pendingZoneSnapRef.current;
+
+        // Skip if we already snapped to this zone (prevents duplicate snaps from double useEffect runs)
+        if (lastSnappedZoneRef.current === zoneId) {
+          console.log('[SNAP] Already snapped to zone', zoneId, '- skipping duplicate snap');
+          return;
+        }
+
+        console.log('[SNAP] Attempting snap to zone:', zoneId, 'Has retest ref:', !!pendingRetestTimeRef.current, 'Retest time:', pendingRetestTimeRef.current);
         const targetZone = zonesData.zones.find((z: any) => z.zone_id.toString() === zoneId);
 
         if (targetZone) {
+          console.log('[SNAP] Target zone found:', targetZone.zone_id);
+
+          // Mark this zone as snapped
+          lastSnappedZoneRef.current = zoneId;
+
+          // Cancel any existing snap timeout to prevent double-snapping
+          if (snapTimeoutRef.current) {
+            console.log('[SNAP] Canceling previous snap timeout');
+            clearTimeout(snapTimeoutRef.current);
+            snapTimeoutRef.current = null;
+          }
+
           // Small delay to ensure zones are fully rendered
-          setTimeout(() => {
+          snapTimeoutRef.current = setTimeout(() => {
             try {
-              // Use visual_retest_time if available (from retest ID search), otherwise use zone start_time
-              const snapCenterTime = pendingRetestTimeRef.current
-                ? Math.floor(new Date(pendingRetestTimeRef.current).getTime() / 1000)
-                : Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+              // Use chartInstanceRef to ensure we're operating on the current chart
+              // (not a stale chart if useEffect ran multiple times)
+              if (!chartInstanceRef.current) {
+                console.warn('[SNAP] Chart instance not available');
+                return;
+              }
 
-              const leftPadding = 3600; // 1 hour before snap point
-              const rightWindow = 259200; // 3 days after snap point
+              // Different zoom behavior for retest vs zone snapping
+              if (pendingRetestTimeRef.current) {
+                // RETEST SCENARIO: Zoom in tight to the retest candle (testing)
+                const retestTime = Math.floor(new Date(pendingRetestTimeRef.current).getTime() / 1000);
+                const tightWindow = 900; // 15 minutes on each side (30 min total window)
+                console.log('[SNAP] Executing RETEST snap - retestTime:', retestTime, 'from:', retestTime - tightWindow, 'to:', retestTime + tightWindow);
 
-              chart.timeScale().setVisibleRange({
-                from: (snapCenterTime - leftPadding) as Time,
-                to: (snapCenterTime + rightWindow) as Time,
-              });
+                chartInstanceRef.current.timeScale().setVisibleRange({
+                  from: (retestTime - tightWindow) as Time,
+                  to: (retestTime + tightWindow) as Time,
+                });
+                console.log('[SNAP] RETEST snap completed');
+              } else {
+                // ZONE SCENARIO: Show full zone duration with proportional padding
+                const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
 
-              // console.log(`Successfully snapped to ${pendingRetestTimeRef.current ? 'retest time' : 'zone'} ${zoneId} at ${new Date(snapCenterTime * 1000).toISOString()}`);
+                // Calculate zone end time using the same logic as zone rendering
+                const candleData = stockData.bars.map((bar) => ({
+                  time: Math.floor(new Date(bar.bucket).getTime() / 1000),
+                  open: Number(bar.open),
+                  high: Number(bar.high),
+                  low: Number(bar.low),
+                  close: Number(bar.close),
+                }));
+
+                const lastCandle = candleData[candleData.length - 1];
+                let zoneEndTime: number;
+
+                // Check if zone has visual_broken_time from API
+                if (targetZone.visual_broken_time) {
+                  zoneEndTime = Math.floor(new Date(targetZone.visual_broken_time).getTime() / 1000);
+                } else {
+                  // Default to last candle or 24h after start
+                  zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+
+                  // Check candles for zone break
+                  const isDemand = targetZone.zone_type.toLowerCase() === 'demand';
+                  const topPrice = parseFloat(targetZone.top_price);
+                  const bottomPrice = parseFloat(targetZone.bottom_price);
+                  const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+
+                  for (const candle of candlesAfterZone) {
+                    if (isDemand) {
+                      // Demand zone broken if ANY OHLC is below bottom price
+                      if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                        candle.low < bottomPrice || candle.close < bottomPrice) {
+                        zoneEndTime = candle.time;
+                        break;
+                      }
+                    } else {
+                      // Supply zone broken if ANY OHLC is above top price
+                      if (candle.open > topPrice || candle.high > topPrice ||
+                        candle.low > topPrice || candle.close > topPrice) {
+                        zoneEndTime = candle.time;
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                // Calculate zone duration and add proportional padding
+                const zoneDuration = zoneEndTime - zoneStartTime;
+                const paddingRatio = 0.2; // 20% padding on each side
+                const padding = Math.max(zoneDuration * paddingRatio, 3600); // Minimum 1 hour padding
+                const maxPadding = 86400 * 3; // Maximum 3 days padding
+                const finalPadding = Math.min(padding, maxPadding);
+
+                chartInstanceRef.current.timeScale().setVisibleRange({
+                  from: (zoneStartTime - finalPadding) as Time,
+                  to: (zoneEndTime + finalPadding) as Time,
+                });
+              }
+
+              // console.log(`Successfully snapped to ${pendingRetestTimeRef.current ? 'retest time' : 'zone'} ${zoneId}`);
 
               // Create trade markers if we navigated from Trade History
               if (pendingTradeRef.current) {
@@ -2099,6 +2195,7 @@ export default function DashboardPage() {
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
               pendingRetestTimeRef.current = null;
+              snapTimeoutRef.current = null;
 
               // Render all trades for the current symbol if showTradesOnChart is enabled
               if (showTradesOnChart && tradesData && stockData) {
@@ -2155,8 +2252,9 @@ export default function DashboardPage() {
               pendingZoneSnapRef.current = null;
               pendingRetestTimeRef.current = null;
               pendingTradeRef.current = null;
+              snapTimeoutRef.current = null;
             }
-          }, 200);
+          }, 50); // Reduced delay to minimize race condition with double useEffect runs
         } else {
           console.warn(`Zone ${zoneId} not found in zones data`);
           pendingZoneSnapRef.current = null;
