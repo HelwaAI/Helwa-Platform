@@ -241,7 +241,7 @@ class SnappingRectangleDrawingTool extends RectangleDrawingTool {
       const snappedPrice = distToHigh < distToLow ? nearestCandle.high : nearestCandle.low;
 
       // Log snapping for debugging
-      console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
+      // console.log(`Snapping: raw price ${rawPrice.toFixed(2)} -> ${snappedPrice.toFixed(2)} (${distToHigh < distToLow ? 'high' : 'low'})`);
 
       // Create modified param with snapped price
       const snappedY = series.priceToCoordinate(snappedPrice);
@@ -1028,8 +1028,8 @@ export default function CryptoDashboardPage() {
   console.log("Timeframe: ", timeframe);
   console.log("Limit: ", limit);
   console.log("Hours: ", hours);
-  console.log("Crypto Trade Data: ", tradesData)
-  console.log("Crypto Strategy Data: ", strategyData)
+  // console.log("Crypto Trade Data: ", tradesData)
+  // console.log("Crypto Strategy Data: ", strategyData)
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -1066,7 +1066,7 @@ export default function CryptoDashboardPage() {
 
           // Step 2: Set pending zone to snap to
           pendingZoneSnapRef.current = zoneId;
-          console.log(`Auto-triggered zone search for ${zoneId}`);
+          // console.log(`Auto-triggered zone search for ${zoneId}`);
 
           // Step 3: Clear the search query
           setZoneSearchQuery('');
@@ -1285,7 +1285,7 @@ export default function CryptoDashboardPage() {
   const fetchStrategyData = async () => {
     try {
       setTabLoading(true);
-      console.log('Fetching crypto strategy from /api/crypto/strategy...');
+      // console.log('Fetching crypto strategy from /api/crypto/strategy...');
       const response = await fetch('/api/crypto/strategy');
 
       // Check if response is OK and is JSON
@@ -1367,7 +1367,7 @@ export default function CryptoDashboardPage() {
 
   // Navigate to chart for a specific trade
   const navigateToTrade = async (trade: Trade) => {
-    console.log('Navigating to trade:', trade);
+    // console.log('Navigating to trade:', trade);
 
     // Store the trade for markers after chart loads
     pendingTradeRef.current = trade;
@@ -1527,13 +1527,13 @@ export default function CryptoDashboardPage() {
       const [startHours, startMinutes] = volumeProfileStartTime.split(':').map(Number);
       const [endHours, endMinutes] = volumeProfileEndTime.split(':').map(Number);
 
-      console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
+      // console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
 
       // Set times from the time inputs (these are interpreted as UTC times)
       startDate.setUTCHours(startHours, startMinutes, 0, 0);
       endDate.setUTCHours(endHours, endMinutes, 59, 999);
 
-      console.log(`[VP] Fetching volume profile: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      // console.log(`[VP] Fetching volume profile: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
       const response = await fetch(
         `/api/crypto/volumeprofile?symbol=${resolvedSymbol}&num_bins=${numBins}&timeframe=${timeframe}&start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`
@@ -1576,7 +1576,7 @@ export default function CryptoDashboardPage() {
       // Step 1: Fetch zone search data to get symbol and timeframe
       const zoneSearchResponse = await fetch(`/api/crypto/searchzoneid?zone_id=${zoneId}`);
       const zoneSearchData = await zoneSearchResponse.json();
-      console.log("ZONE SEARCH TEST: ", zoneSearchData);
+      // console.log("ZONE SEARCH TEST: ", zoneSearchData);
 
       if (!zoneSearchData.success) {
         setError(zoneSearchData.error || `Zone ${zoneId} not found`);
@@ -1587,7 +1587,7 @@ export default function CryptoDashboardPage() {
       }
 
       const { symbol, timeframe: timeframeLabel } = zoneSearchData.data;
-      console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
+      // console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
 
       // Step 2: Get limit and hours from timeframe using the same maps as handleTimeframeChange
       const timeframeMap: Record<string, string> = {
@@ -1636,7 +1636,7 @@ export default function CryptoDashboardPage() {
       setLimit(newLimit);
       setHours(newHours);
 
-      console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
+      // console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
 
       // Step 4: Call the existing fetchCryptoData function with the new values
       // Pass the values directly since state updates are async
@@ -1761,12 +1761,12 @@ export default function CryptoDashboardPage() {
           to: (zoneStartTime + rightWindow) as Time,
         });
 
-        console.log(`Zoomed to zone ${zoneId}:`, {
-          startTime: new Date(zoneStartTime * 1000).toISOString(),
-          visibleFrom: new Date((zoneStartTime - leftPadding) * 1000).toISOString(),
-          visibleTo: new Date((zoneStartTime + rightWindow) * 1000).toISOString(),
-          windowDays: (rightWindow / 86400).toFixed(1)
-        });
+        // console.log(`Zoomed to zone ${zoneId}:`, {
+        //   startTime: new Date(zoneStartTime * 1000).toISOString(),
+        //   visibleFrom: new Date((zoneStartTime - leftPadding) * 1000).toISOString(),
+        //   visibleTo: new Date((zoneStartTime + rightWindow) * 1000).toISOString(),
+        //   windowDays: (rightWindow / 86400).toFixed(1)
+        // });
       } catch (err) {
         console.error('Error zooming to zone:', err);
         setError('Error zooming to zone');
@@ -1789,7 +1789,7 @@ export default function CryptoDashboardPage() {
       // Step 2: Set pending zone to snap to
       // The useEffect watching zonesData will handle the actual snapping
       pendingZoneSnapRef.current = zoneId;
-      console.log(`Set pending zone snap to ${zoneId}`);
+      // console.log(`Set pending zone snap to ${zoneId}`);
 
       // Clear the search query
       setZoneSearchQuery('');
@@ -1798,7 +1798,7 @@ export default function CryptoDashboardPage() {
 
   // Initialize candlestick chart when cryptoData changes
   useEffect(() => {
-    console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
+    // console.log('Chart effect triggered - cryptoData:', cryptoData?.symbol, 'zonesData:', zonesData?.symbol);
     if (!cryptoData || !chartContainerRef.current) return;
 
     try {
@@ -1877,7 +1877,7 @@ export default function CryptoDashboardPage() {
         // Sort by time in ascending order (required by lightweight-charts)
         .sort((a, b) => a.time - b.time);
 
-      console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
+      // console.log(`Rendering ${candleData.length} candles for ${cryptoData.symbol}`);
       if (candleData.length === 0) {
         console.error('No valid candle data to render');
         return;
@@ -1952,30 +1952,30 @@ export default function CryptoDashboardPage() {
             let isBroken = false;
 
             // If zone.end_time is provided by API, use it as the zone duration
-            if (zone.end_time) {
-              zoneEndTime = Math.floor(new Date(zone.end_time).getTime() / 1000);
+            // if (zone.end_time) {
+            //   zoneEndTime = Math.floor(new Date(zone.end_time).getTime() / 1000);
 
-              // Still check if zone was broken within this time range
-              const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime && c.time <= zoneEndTime);
+            //   // Still check if zone was broken within this time range
+            //   const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime && c.time <= zoneEndTime);
 
-              for (const candle of candlesAfterZone) {
-                if (isDemand) {
-                  // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
-                  if (candle.open < bottomPrice || candle.high < bottomPrice ||
-                    candle.low < bottomPrice || candle.close < bottomPrice) {
-                    isBroken = true;
-                    break;
-                  }
-                } else {
-                  // Supply zone broken if ANY of OHLC is above top price (full penetration)
-                  if (candle.open > topPrice || candle.high > topPrice ||
-                    candle.low > topPrice || candle.close > topPrice) {
-                    isBroken = true;
-                    break;
-                  }
-                }
-              }
-            } else {
+            //   for (const candle of candlesAfterZone) {
+            //     if (isDemand) {
+            //       // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
+            //       if (candle.open < bottomPrice || candle.high < bottomPrice ||
+            //         candle.low < bottomPrice || candle.close < bottomPrice) {
+            //         isBroken = true;
+            //         break;
+            //       }
+            //     } else {
+            //       // Supply zone broken if ANY of OHLC is above top price (full penetration)
+            //       if (candle.open > topPrice || candle.high > topPrice ||
+            //         candle.low > topPrice || candle.close > topPrice) {
+            //         isBroken = true;
+            //         break;
+            //       }
+            //     }
+            //   }
+            // } else {
               // Fallback: determine zone end time by checking for breaks in candle data
               // Default to last candle or 24h after start
               zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
@@ -2004,7 +2004,7 @@ export default function CryptoDashboardPage() {
                   }
                 }
               }
-            }
+            // }
 
             // Colors for demand (green) and supply (red) zones
             const fillColor = isDemand ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 82, 82, 0.3)';
@@ -2026,17 +2026,17 @@ export default function CryptoDashboardPage() {
             candlestickSeries.attachPrimitive(zonePrimitive);
             zonePrimitivesRef.current.push(zonePrimitive);
 
-            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
-              type: zone.zone_type,
-              isBroken,
-              startTime: new Date(zoneStartTime * 1000).toISOString(),
-              endTime: new Date(zoneEndTime! * 1000).toISOString(),
-              topPrice,
-              bottomPrice,
-              usedApiEndTime: !!zone.end_time,
-              apiEndTime: zone.end_time || 'N/A',
-              duration: `${((zoneEndTime - zoneStartTime) / 60).toFixed(0)} minutes`
-            });
+            // console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+            //   type: zone.zone_type,
+            //   isBroken,
+            //   startTime: new Date(zoneStartTime * 1000).toISOString(),
+            //   endTime: new Date(zoneEndTime! * 1000).toISOString(),
+            //   topPrice,
+            //   bottomPrice,
+            //   usedApiEndTime: !!zone.end_time,
+            //   apiEndTime: zone.end_time || 'N/A',
+            //   duration: `${((zoneEndTime - zoneStartTime) / 60).toFixed(0)} minutes`
+            // });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
           }
@@ -2059,7 +2059,7 @@ export default function CryptoDashboardPage() {
         );
         candlestickSeries.attachPrimitive(volumeProfilePrimitive);
         volumeProfilePrimitiveRef.current = volumeProfilePrimitive;
-        console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
+        // console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
       }
 
       // Initialize hoveredCandle with last available candle data
@@ -2181,12 +2181,12 @@ export default function CryptoDashboardPage() {
                 to: (zoneStartTime + rightWindow) as Time,
               });
 
-              console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
+              // console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
 
               // Create trade markers if we navigated from Trade History
               if (pendingTradeRef.current) {
                 const trade = pendingTradeRef.current;
-                console.log('Creating trade markers for:', trade);
+                // console.log('Creating trade markers for:', trade);
 
                 // Calculate entry time - use retestDate or alertTime (matching stock dashboard)
                 const entryTimeStr = trade.retestDate || trade.alertTime;
@@ -2218,7 +2218,7 @@ export default function CryptoDashboardPage() {
 
                 candlestickSeries.attachPrimitive(tradeMarker);
                 tradeMarkerPrimitiveRef.current = tradeMarker;
-                console.log('Trade marker attached');
+                // console.log('Trade marker attached');
 
                 // Clear the pending trade
                 pendingTradeRef.current = null;
@@ -2250,7 +2250,7 @@ export default function CryptoDashboardPage() {
         const currentSymbol = cryptoData.symbol;
         const symbolTrades = tradesData.trades.filter((t: any) => t.symbol === currentSymbol);
 
-        console.log(`Rendering ${symbolTrades.length} crypto trade markers for ${currentSymbol}`);
+        // console.log(`Rendering ${symbolTrades.length} crypto trade markers for ${currentSymbol}`);
 
         symbolTrades.forEach((trade: any) => {
           try {

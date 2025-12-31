@@ -491,7 +491,7 @@ class VolumeProfilePrimitive {
     }
   }
 }
-
+// testing commit
 // ============================================================================
 // Trade Marker Primitive - Visual indicators for trade entry/exit
 // ============================================================================
@@ -955,11 +955,16 @@ export default function DashboardPage() {
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const pendingZoneSnapRef = useRef<string | null>(null);
+  const pendingRetestTimeRef = useRef<string | null>(null); // Store visual_retest_time for snapping
+  const snapTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Store snap timeout ID to cancel if needed
+  const lastSnappedZoneRef = useRef<string | null>(null); // Track last snapped zone to prevent duplicate snaps
   const [timeframe, setTimeframe] = useState("2m");
   const [limit, setLimit] = useState(5850);
   const [hours, setHours] = useState(720);
   const [zoneSearchQuery, setZoneSearchQuery] = useState("");
+  const [zoneRetestIdSearchQuery, setZoneRetestIdSearchQuery] = useState("");
   const [selectedTimeframeKey, setSelectedTimeframeKey] = useState("2min");
   const [entryTargetStopLoss, setEntryTargetStopLoss] = useState<Record<string, {
     entry_price: number;
@@ -1017,11 +1022,11 @@ export default function DashboardPage() {
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [backtestEngine, setBacktestEngine] = useState<string>('');
 
-  console.log("Timeframe: ", timeframe);
-  console.log("Limit: ", limit);
-  console.log("Hours: ", hours);
-  console.log("Stock Trade Data: ", tradesData)
-  console.log("Stock Strategy Data: ", strategyData)
+  // console.log("Timeframe: ", timeframe);
+  // console.log("Limit: ", limit);
+  // console.log("Hours: ", hours);
+  // console.log("Stock Trade Data: ", tradesData)
+  // console.log("Stock Strategy Data: ", strategyData)
 
   useEffect(() => {
     // Fetch user info from Azure Easy Auth
@@ -1058,7 +1063,7 @@ export default function DashboardPage() {
 
           // Step 2: Set pending zone to snap to
           pendingZoneSnapRef.current = zoneId;
-          console.log(`Auto-triggered zone search for ${zoneId}`);
+          // console.log(`Auto-triggered zone search for ${zoneId}`);
 
           // Step 3: Clear the search query
           setZoneSearchQuery('');
@@ -1109,7 +1114,7 @@ export default function DashboardPage() {
   const fetchTradesData = async () => {
     try {
       setTabLoading(true);
-      const response = await fetch('/api/stocks/trades?limit=5000');
+      const response = await fetch('/api/stocks/trades');
       const data = await response.json();
       if (data.success) {
         setTradesData(data.data);
@@ -1200,7 +1205,7 @@ export default function DashboardPage() {
 
   // Navigate to chart for a specific trade
   const navigateToTrade = async (trade: Trade) => {
-    console.log('Navigating to trade:', trade);
+    // console.log('Navigating to trade:', trade);
 
     // Store the trade for markers after chart loads
     pendingTradeRef.current = trade;
@@ -1422,7 +1427,7 @@ export default function DashboardPage() {
       // Step 1: Fetch zone search data to get symbol and timeframe
       const zoneSearchResponse = await fetch(`/api/stocks/searchzoneid?zone_id=${zoneId}`);
       const zoneSearchData = await zoneSearchResponse.json();
-      console.log("ZONE SEARCH TEST: ", zoneSearchData);
+      // console.log("ZONE SEARCH TEST: ", zoneSearchData);
 
       if (!zoneSearchData.success) {
         setError(zoneSearchData.error || `Zone ${zoneId} not found`);
@@ -1434,7 +1439,7 @@ export default function DashboardPage() {
       }
 
       const { symbol, timeframe: timeframeLabel } = zoneSearchData.data;
-      console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
+      // console.log(`Zone ${zoneId} found: Symbol=${symbol}, Timeframe=${timeframeLabel}`);
 
       // Step 2: Get limit and hours from timeframe using the same maps as handleTimeframeChange
       const timeframeMap: Record<string, string> = {
@@ -1487,7 +1492,7 @@ export default function DashboardPage() {
       setLimit(newLimit);
       setHours(newHours);
 
-      console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
+      // console.log(`Updated UI: symbol=${symbol}, timeframe=${timeframeValue}, limit=${newLimit}, hours=${newHours}`);
 
       // Step 4: Call the existing fetchStockData function with the new values
       // Pass the values directly since state updates are async
@@ -1542,7 +1547,7 @@ export default function DashboardPage() {
       const [startHours, startMinutes] = volumeProfileStartTime.split(':').map(Number);
       const [endHours, endMinutes] = volumeProfileEndTime.split(':').map(Number);
 
-      console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
+      // console.log(`[VP] Time inputs: start=${volumeProfileStartTime} (${startHours}:${startMinutes}), end=${volumeProfileEndTime} (${endHours}:${endMinutes})`);
 
       // Set times from the time inputs (these are interpreted as ET times for stocks)
       startDate.setHours(startHours, startMinutes, 0, 0);
@@ -1652,16 +1657,57 @@ export default function DashboardPage() {
         return;
       }
 
-      // Step 1: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
-      await fetchStockDataWithZoneID(zoneId);
-
-      // Step 2: Set pending zone to snap to
-      // The useEffect watching zonesData will handle the actual snapping
+      // Step 1: Set pending zone to snap to BEFORE fetching
+      // This ensures the ref is ready when useEffect runs
       pendingZoneSnapRef.current = zoneId;
-      console.log(`Set pending zone snap to ${zoneId}`);
+      lastSnappedZoneRef.current = null; // Clear previous snap to allow new snap
+      // console.log(`Set pending zone snap to ${zoneId}`);
+
+      // Step 2: Fetch all data for this zone (symbol, timeframe, aggregates, zones)
+      // The useEffect watching zonesData will handle the actual snapping
+      await fetchStockDataWithZoneID(zoneId);
 
       // Clear the search query
       setZoneSearchQuery('');
+    }
+  };
+
+  // Handle zone retest ID search - fetch zone_id from retest ID and auto-trigger zone search
+  const handleZoneRetestIdSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    console.log('handleZoneRetestIdSearch called, key:', e.key);
+    if (e.key === 'Enter') {
+      const retestId = zoneRetestIdSearchQuery.trim();
+      console.log('Retest ID entered:', retestId);
+      if (!retestId) {
+        return;
+      }
+
+      try {
+        // Call the searchZoneFirstRetestId API
+        const response = await fetch(`/api/stocks/searchZoneFirstRetestId?ZoneFirstRetestId=${retestId}`);
+        const result = await response.json();
+        console.log('API response:', result);
+
+        if (result.success && result.data?.zone_id) {
+          const zoneId = result.data.zone_id;
+          const visual_retest_time = result.data.visual_retest_time;
+          console.log("Retest: ", visual_retest_time);
+          console.log("Zone ID: ", zoneId);
+          // Set pending refs BEFORE fetching so they're ready when useEffect runs
+          pendingZoneSnapRef.current = zoneId;
+          pendingRetestTimeRef.current = visual_retest_time; // Store retest time for snapping
+          lastSnappedZoneRef.current = null; // Clear previous snap to allow new snap
+          // Automatically trigger zone search with the fetched zone_id
+          await fetchStockDataWithZoneID(zoneId);
+        } else {
+          console.error('Failed to fetch zone_id:', result.error);
+        }
+      } catch (error) {
+        console.error('Error fetching zone retest ID:', error);
+      }
+
+      // Clear the search query
+      setZoneRetestIdSearchQuery('');
     }
   };
 
@@ -1670,8 +1716,16 @@ export default function DashboardPage() {
     if (!stockData || !chartContainerRef.current) return;
 
     try {
-      // Create chart with time scale and crosshair configuration
-      const chart = createChart(chartContainerRef.current, {
+      // Reuse existing chart and series if available (prevents recreation flash)
+      const shouldCreateNewChart = !chartInstanceRef.current || !candlestickSeriesRef.current;
+
+      let chart: IChartApi;
+      let candlestickSeries: ISeriesApi<"Candlestick">;
+
+      if (shouldCreateNewChart) {
+        console.log('[CHART] Creating new chart and series');
+        // Create chart with time scale and crosshair configuration
+        chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
         layout: {
@@ -1711,18 +1765,24 @@ export default function DashboardPage() {
         },
       });
 
-      // Store chart instance for later access (e.g., zoom to zone)
-      chartInstanceRef.current = chart;
+        // Store chart instance for later access (e.g., zoom to zone)
+        chartInstanceRef.current = chart;
 
-      // Add candlestick series
-      const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
-      });
+        // Add candlestick series
+        candlestickSeries = chart.addSeries(CandlestickSeries, {
+          upColor: '#26a69a',
+          downColor: '#ef5350',
+          borderUpColor: '#26a69a',
+          borderDownColor: '#ef5350',
+          wickUpColor: '#26a69a',
+          wickDownColor: '#ef5350',
+        });
+        candlestickSeriesRef.current = candlestickSeries;
+      } else {
+        console.log('[CHART] Reusing existing chart and series');
+        chart = chartInstanceRef.current!; // Non-null assertion - we checked shouldCreateNewChart
+        candlestickSeries = candlestickSeriesRef.current!; // Non-null assertion
+      }
 
       // Convert bars data to candlestick format
       const candleData = stockData.bars
@@ -1770,8 +1830,10 @@ export default function DashboardPage() {
         });
       }
 
-      // Fit content to view
-      chart.timeScale().fitContent();
+      // Fit content to view (skip if we have a pending snap OR just snapped to a zone)
+      if (!pendingZoneSnapRef.current && !pendingRetestTimeRef.current && !lastSnappedZoneRef.current) {
+        chart.timeScale().fitContent();
+      }
 
       // Clean up existing zone primitives
       zonePrimitivesRef.current.forEach(primitive => {
@@ -1807,30 +1869,10 @@ export default function DashboardPage() {
             let zoneEndTime: number;
             let isBroken = false;
 
-            // If zone.end_time is provided by API, use it as the zone duration
-            if (zone.end_time) {
-              zoneEndTime = Math.floor(new Date(zone.end_time).getTime() / 1000);
-
-              // Still check if zone was broken within this time range
-              const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime && c.time <= zoneEndTime);
-
-              for (const candle of candlesAfterZone) {
-                if (isDemand) {
-                  // Demand zone broken if ANY of OHLC is below bottom price (full penetration)
-                  if (candle.open < bottomPrice || candle.high < bottomPrice ||
-                    candle.low < bottomPrice || candle.close < bottomPrice) {
-                    isBroken = true;
-                    break;
-                  }
-                } else {
-                  // Supply zone broken if ANY of OHLC is above top price (full penetration)
-                  if (candle.open > topPrice || candle.high > topPrice ||
-                    candle.low > topPrice || candle.close > topPrice) {
-                    isBroken = true;
-                    break;
-                  }
-                }
-              }
+            // If zone.broken_at is provided by API, use it as the zone end time
+            if (zone.visual_broken_time) {
+              zoneEndTime = Math.floor(new Date(zone.visual_broken_time).getTime() / 1000);
+              isBroken = true;
             } else {
               // Fallback: determine zone end time by checking for breaks in candle data
               // Default to last candle or 24h after start
@@ -1882,17 +1924,17 @@ export default function DashboardPage() {
             candlestickSeries.attachPrimitive(zonePrimitive);
             zonePrimitivesRef.current.push(zonePrimitive);
 
-            console.log(`Zone ${zone.zone_id} attached as primitive:`, {
-              type: zone.zone_type,
-              isBroken,
-              startTime: new Date(zoneStartTime * 1000).toISOString(),
-              endTime: new Date(zoneEndTime! * 1000).toISOString(),
-              topPrice,
-              bottomPrice,
-              usedApiEndTime: !!zone.end_time,
-              apiEndTime: zone.end_time || 'N/A',
-              duration: `${((zoneEndTime - zoneStartTime) / 60).toFixed(0)} minutes`
-            });
+            // console.log(`Zone ${zone.zone_id} attached as primitive:`, {
+            //   type: zone.zone_type,
+            //   isBroken,
+            //   startTime: new Date(zoneStartTime * 1000).toISOString(),
+            //   endTime: new Date(zoneEndTime! * 1000).toISOString(),
+            //   topPrice,
+            //   bottomPrice,
+            //   usedApiEndTime: !!zone.end_time,
+            //   apiEndTime: zone.end_time || 'N/A',
+            //   duration: `${((zoneEndTime - zoneStartTime) / 60).toFixed(0)} minutes`
+            // });
           } catch (err) {
             console.error(`Error creating zone primitive:`, err);
           }
@@ -1910,7 +1952,7 @@ export default function DashboardPage() {
         );
         candlestickSeries.attachPrimitive(volumeProfilePrimitive);
         volumeProfilePrimitiveRef.current = volumeProfilePrimitive;
-        console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
+        // console.log(`Volume profile attached with ${volumeProfileData.nodes.length} nodes`);
       }
 
       // Add crosshair move handler for zone tooltips and candle stats
@@ -2013,29 +2055,121 @@ export default function DashboardPage() {
       });
 
       // Check if there's a pending zone to snap to after chart and zones are ready
+      console.log('[SNAP] Checking snap condition - pendingZone:', pendingZoneSnapRef.current, 'hasZonesData:', !!zonesData, 'hasZones:', !!zonesData?.zones);
       if (pendingZoneSnapRef.current && zonesData && zonesData.zones) {
         const zoneId = pendingZoneSnapRef.current;
+
+        // Skip if we already snapped to this zone (prevents duplicate snaps from double useEffect runs)
+        if (lastSnappedZoneRef.current === zoneId) {
+          console.log('[SNAP] Already snapped to zone', zoneId, '- skipping duplicate snap');
+          return;
+        }
+
+        console.log('[SNAP] Attempting snap to zone:', zoneId, 'Has retest ref:', !!pendingRetestTimeRef.current, 'Retest time:', pendingRetestTimeRef.current);
         const targetZone = zonesData.zones.find((z: any) => z.zone_id.toString() === zoneId);
 
         if (targetZone) {
+          console.log('[SNAP] Target zone found:', targetZone.zone_id);
+
+          // Mark this zone as snapped
+          lastSnappedZoneRef.current = zoneId;
+
+          // Cancel any existing snap timeout to prevent double-snapping
+          if (snapTimeoutRef.current) {
+            console.log('[SNAP] Canceling previous snap timeout');
+            clearTimeout(snapTimeoutRef.current);
+            snapTimeoutRef.current = null;
+          }
+
           // Small delay to ensure zones are fully rendered
-          setTimeout(() => {
+          snapTimeoutRef.current = setTimeout(() => {
             try {
-              const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
-              const leftPadding = 3600; // 1 hour before zone start
-              const rightWindow = 259200; // 3 days after zone start
+              // Use chartInstanceRef to ensure we're operating on the current chart
+              // (not a stale chart if useEffect ran multiple times)
+              if (!chartInstanceRef.current) {
+                console.warn('[SNAP] Chart instance not available');
+                return;
+              }
 
-              chart.timeScale().setVisibleRange({
-                from: (zoneStartTime - leftPadding) as Time,
-                to: (zoneStartTime + rightWindow) as Time,
-              });
+              // Different zoom behavior for retest vs zone snapping
+              if (pendingRetestTimeRef.current) {
+                // RETEST SCENARIO: Zoom in tight to the retest candle (testing)
+                const retestTime = Math.floor(new Date(pendingRetestTimeRef.current).getTime() / 1000);
+                const tightWindow = 900; // 15 minutes on each side (30 min total window)
+                console.log('[SNAP] Executing RETEST snap - retestTime:', retestTime, 'from:', retestTime - tightWindow, 'to:', retestTime + tightWindow);
 
-              console.log(`Successfully snapped to zone ${zoneId} at ${new Date(zoneStartTime * 1000).toISOString()}`);
+                chartInstanceRef.current.timeScale().setVisibleRange({
+                  from: (retestTime - tightWindow) as Time,
+                  to: (retestTime + tightWindow) as Time,
+                });
+                console.log('[SNAP] RETEST snap completed');
+              } else {
+                // ZONE SCENARIO: Show full zone duration with proportional padding
+                const zoneStartTime = Math.floor(new Date(targetZone.start_time).getTime() / 1000);
+
+                // Calculate zone end time using the same logic as zone rendering
+                const candleData = stockData.bars.map((bar) => ({
+                  time: Math.floor(new Date(bar.bucket).getTime() / 1000),
+                  open: Number(bar.open),
+                  high: Number(bar.high),
+                  low: Number(bar.low),
+                  close: Number(bar.close),
+                }));
+
+                const lastCandle = candleData[candleData.length - 1];
+                let zoneEndTime: number;
+
+                // Check if zone has visual_broken_time from API
+                if (targetZone.visual_broken_time) {
+                  zoneEndTime = Math.floor(new Date(targetZone.visual_broken_time).getTime() / 1000);
+                } else {
+                  // Default to last candle or 24h after start
+                  zoneEndTime = lastCandle ? lastCandle.time : zoneStartTime + 86400;
+
+                  // Check candles for zone break
+                  const isDemand = targetZone.zone_type.toLowerCase() === 'demand';
+                  const topPrice = parseFloat(targetZone.top_price);
+                  const bottomPrice = parseFloat(targetZone.bottom_price);
+                  const candlesAfterZone = candleData.filter(c => c.time >= zoneStartTime);
+
+                  for (const candle of candlesAfterZone) {
+                    if (isDemand) {
+                      // Demand zone broken if ANY OHLC is below bottom price
+                      if (candle.open < bottomPrice || candle.high < bottomPrice ||
+                        candle.low < bottomPrice || candle.close < bottomPrice) {
+                        zoneEndTime = candle.time;
+                        break;
+                      }
+                    } else {
+                      // Supply zone broken if ANY OHLC is above top price
+                      if (candle.open > topPrice || candle.high > topPrice ||
+                        candle.low > topPrice || candle.close > topPrice) {
+                        zoneEndTime = candle.time;
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                // Calculate zone duration and add proportional padding
+                const zoneDuration = zoneEndTime - zoneStartTime;
+                const paddingRatio = 0.2; // 20% padding on each side
+                const padding = Math.max(zoneDuration * paddingRatio, 3600); // Minimum 1 hour padding
+                const maxPadding = 86400 * 3; // Maximum 3 days padding
+                const finalPadding = Math.min(padding, maxPadding);
+
+                chartInstanceRef.current.timeScale().setVisibleRange({
+                  from: (zoneStartTime - finalPadding) as Time,
+                  to: (zoneEndTime + finalPadding) as Time,
+                });
+              }
+
+              // console.log(`Successfully snapped to ${pendingRetestTimeRef.current ? 'retest time' : 'zone'} ${zoneId}`);
 
               // Create trade markers if we navigated from Trade History
               if (pendingTradeRef.current) {
                 const trade = pendingTradeRef.current;
-                console.log('Creating trade markers for:', trade);
+                // console.log('Creating trade markers for:', trade);
 
                 // Calculate entry time - use alertTime or retestDate
                 const entryTimeStr = trade.retestDate || trade.alertTime;
@@ -2067,7 +2201,7 @@ export default function DashboardPage() {
 
                 candlestickSeries.attachPrimitive(tradeMarker);
                 tradeMarkerPrimitiveRef.current = tradeMarker;
-                console.log('Trade marker attached');
+                // console.log('Trade marker attached');
 
                 // Clear the pending trade
                 pendingTradeRef.current = null;
@@ -2075,13 +2209,15 @@ export default function DashboardPage() {
 
               // Clear the pending snap
               pendingZoneSnapRef.current = null;
+              pendingRetestTimeRef.current = null;
+              snapTimeoutRef.current = null;
 
               // Render all trades for the current symbol if showTradesOnChart is enabled
               if (showTradesOnChart && tradesData && stockData) {
                 const currentSymbol = stockData.symbol;
                 const symbolTrades = tradesData.trades.filter(t => t.symbol === currentSymbol);
 
-                console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol}`);
+                // console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol}`);
 
                 symbolTrades.forEach(trade => {
                   try {
@@ -2129,12 +2265,15 @@ export default function DashboardPage() {
             } catch (err) {
               console.error('Error snapping to zone:', err);
               pendingZoneSnapRef.current = null;
+              pendingRetestTimeRef.current = null;
               pendingTradeRef.current = null;
+              snapTimeoutRef.current = null;
             }
-          }, 200);
+          }, 50); // Reduced delay to minimize race condition with double useEffect runs
         } else {
           console.warn(`Zone ${zoneId} not found in zones data`);
           pendingZoneSnapRef.current = null;
+          pendingRetestTimeRef.current = null;
           pendingTradeRef.current = null;
         }
       }
@@ -2145,7 +2284,7 @@ export default function DashboardPage() {
         const currentSymbol = stockData.symbol;
         const symbolTrades = tradesData.trades.filter((t: any) => t.symbol === currentSymbol);
 
-        console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol} (toggle mode)`);
+        // console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol} (toggle mode)`);
 
         symbolTrades.forEach((trade: any) => {
           try {
@@ -2230,8 +2369,9 @@ export default function DashboardPage() {
         });
         tradeMarkerPrimitivesRef.current = [];
 
-        chart.remove();
-        chartInstanceRef.current = null;
+        // DON'T remove chart - reuse it on next render to prevent flash
+        // chart.remove();
+        // chartInstanceRef.current = null;
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
@@ -3369,6 +3509,18 @@ export default function DashboardPage() {
                       value={zoneSearchQuery}
                       onChange={(e) => setZoneSearchQuery(e.target.value)}
                       onKeyDown={handleZoneIdSearch}
+                      disabled={fetching}
+                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="ZoneRetestID... Press Enter"
+                      value={zoneRetestIdSearchQuery}
+                      onChange={(e) => setZoneRetestIdSearchQuery(e.target.value)}
+                      onKeyDown={handleZoneRetestIdSearch}
                       disabled={fetching}
                       className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
