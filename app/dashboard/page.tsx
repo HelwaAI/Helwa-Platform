@@ -955,6 +955,7 @@ export default function DashboardPage() {
   const volumeProfilePrimitiveRef = useRef<VolumeProfilePrimitive | null>(null);
   const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const pendingZoneSnapRef = useRef<string | null>(null);
   const pendingRetestTimeRef = useRef<string | null>(null); // Store visual_retest_time for snapping
   const snapTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Store snap timeout ID to cancel if needed
@@ -1715,8 +1716,16 @@ export default function DashboardPage() {
     if (!stockData || !chartContainerRef.current) return;
 
     try {
-      // Create chart with time scale and crosshair configuration
-      const chart = createChart(chartContainerRef.current, {
+      // Reuse existing chart and series if available (prevents recreation flash)
+      const shouldCreateNewChart = !chartInstanceRef.current || !candlestickSeriesRef.current;
+
+      let chart: IChartApi;
+      let candlestickSeries: ISeriesApi<"Candlestick">;
+
+      if (shouldCreateNewChart) {
+        console.log('[CHART] Creating new chart and series');
+        // Create chart with time scale and crosshair configuration
+        chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
         layout: {
@@ -1756,18 +1765,24 @@ export default function DashboardPage() {
         },
       });
 
-      // Store chart instance for later access (e.g., zoom to zone)
-      chartInstanceRef.current = chart;
+        // Store chart instance for later access (e.g., zoom to zone)
+        chartInstanceRef.current = chart;
 
-      // Add candlestick series
-      const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
-      });
+        // Add candlestick series
+        candlestickSeries = chart.addSeries(CandlestickSeries, {
+          upColor: '#26a69a',
+          downColor: '#ef5350',
+          borderUpColor: '#26a69a',
+          borderDownColor: '#ef5350',
+          wickUpColor: '#26a69a',
+          wickDownColor: '#ef5350',
+        });
+        candlestickSeriesRef.current = candlestickSeries;
+      } else {
+        console.log('[CHART] Reusing existing chart and series');
+        chart = chartInstanceRef.current!; // Non-null assertion - we checked shouldCreateNewChart
+        candlestickSeries = candlestickSeriesRef.current!; // Non-null assertion
+      }
 
       // Convert bars data to candlestick format
       const candleData = stockData.bars
@@ -2354,8 +2369,9 @@ export default function DashboardPage() {
         });
         tradeMarkerPrimitivesRef.current = [];
 
-        chart.remove();
-        chartInstanceRef.current = null;
+        // DON'T remove chart - reuse it on next render to prevent flash
+        // chart.remove();
+        // chartInstanceRef.current = null;
       };
     } catch (err) {
       console.error('Error initializing chart:', err);
