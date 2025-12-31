@@ -23,8 +23,6 @@ const pool = new Pool({
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol');
-  const limit = parseInt(searchParams.get('limit') || '5000');
-  const offset = parseInt(searchParams.get('offset') || '0');
   const status = searchParams.get('status'); // 'open', 'closed', 'all'
 
   try {
@@ -84,10 +82,6 @@ export async function GET(request: Request) {
 
     // Order by most recent first
     query += ` ORDER BY ht.entry_time DESC`;
-
-    // Add pagination
-    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(limit, offset);
 
     const result = await pool.query(query, params);
 
