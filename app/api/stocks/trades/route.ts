@@ -7,6 +7,28 @@ if (process.env.NODE_ENV === 'development') {
   require('dotenv').config({ path: '.env.local' });
 }
 
+
+const timeframeMap = {
+  "2m": 2,
+  "3m": 3,
+  "5m": 4,
+  "6m": 5,
+  "10m": 6,
+  "13m": 7,
+  "15m": 8,
+  "26m": 9,
+  "30m": 10,
+  "39m": 11,
+  "65m": 12,
+  "78m": 13,
+  "130m": 14,
+  "195m": 15,
+  "1d": 16,
+  "5d": 18,
+  "22d": 19,
+  "65d": 20,
+};
+
 // Create PostgreSQL connection pool
 const pool = new Pool({
   host: process.env.POSTGRES_HOST,
@@ -24,6 +46,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol');
   const status = searchParams.get('status'); // 'open', 'closed', 'all'
+  const timeframe = searchParams.get('timeframe') || '5m';
+  const timeframeId = timeframeMap[timeframe as keyof typeof timeframeMap] || 1;
 
   try {
     // Query to get trades from historical_trades table
@@ -60,7 +84,7 @@ export async function GET(request: Request) {
         tf.label as timeframe
     FROM stocks.historical_trades ht
     LEFT JOIN stocks.timeframes tf ON ht.timeframe_id = tf.id
-    WHERE 1=1
+    WHERE ht.timeframe_id = ${timeframeId}
     `;
 
     const params: any[] = [];

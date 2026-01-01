@@ -920,6 +920,27 @@ interface BacktestSymbol {
   name: string;
 }
 
+// Helper function to parse timeframe string to minutes
+function parseTimeframeToMinutes(timeframe: string): number | null {
+  const match = timeframe.match(/^(\d+)(min|m|h|d)$/i);
+  if (!match) return null;
+
+  const value = parseInt(match[1]);
+  const unit = match[2].toLowerCase();
+
+  switch (unit) {
+    case 'min':
+    case 'm':
+      return value;
+    case 'h':
+      return value * 60;
+    case 'd':
+      return value * 60 * 24;
+    default:
+      return null;
+  }
+}
+
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user-admin@helwa.ai", role: "admin" });
@@ -1103,18 +1124,18 @@ export default function DashboardPage() {
     }
   }, [activeTab]);
 
-  // Effect to fetch trades when showTradesOnChart is enabled
+  // Effect to fetch trades when showTradesOnChart is enabled or timeframe changes
   useEffect(() => {
-    if (showTradesOnChart && !tradesData) {
+    if (showTradesOnChart) {
       fetchTradesData();
     }
-  }, [showTradesOnChart]);
+  }, [showTradesOnChart, selectedTimeframeKey]);
 
   // Fetch trades data
   const fetchTradesData = async () => {
     try {
       setTabLoading(true);
-      const response = await fetch('/api/stocks/trades');
+      const response = await fetch(`/api/stocks/trades?timeframe=${timeframe}`);
       const data = await response.json();
       if (data.success) {
         setTradesData(data.data);
@@ -2176,17 +2197,34 @@ export default function DashboardPage() {
                 const entryTime = Math.floor(new Date(entryTimeStr).getTime() / 1000) as Time;
                 const entryPrice = trade.retestPrice || trade.entryPrice;
 
-                // Calculate exit time (5 days after entry) and exit price
+                // Calculate exit time and price
                 let exitTime: Time | undefined;
                 let exitPrice: number | undefined;
 
-                if (trade.close5d !== null) {
-                  // Exit is 5 trading days after entry
-                  const entryDate = new Date(entryTimeStr);
-                  const exitDate = new Date(entryDate);
-                  exitDate.setDate(exitDate.getDate() + 7); // ~5 trading days
-                  exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
-                  exitPrice = trade.close5d;
+                if (trade.exitTime) {
+                  exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
+                  exitPrice = trade.exitPrice || undefined;
+                }
+
+                // Round exit time to nearest candle from actual chart data
+                if (exitTime && stockData?.bars) {
+                  const candleTimes = stockData.bars.map(bar => Math.floor(new Date(bar.bucket).getTime() / 1000));
+                  const nearestCandleTime = candleTimes
+                    .filter(time => time <= (exitTime as number))
+                    .sort((a, b) => b - a)[0];
+                  if (nearestCandleTime) {
+                    exitTime = nearestCandleTime as Time;
+                  }
+                }
+
+                // Round exit price based on zone type
+                if (exitPrice !== undefined) {
+                  const zoneType = (trade.zoneType || 'demand').toLowerCase();
+                  if (zoneType === 'demand') {
+                    exitPrice = Math.floor(exitPrice * 100) / 100;
+                  } else {
+                    exitPrice = Math.ceil(exitPrice * 100) / 100;
+                  }
                 }
 
                 // Create the trade marker primitive
@@ -2236,13 +2274,27 @@ export default function DashboardPage() {
                     if (trade.exitTime) {
                       exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
                       exitPrice = trade.exitPrice || undefined;
-                    } else if (trade.close5d !== null && trade.close5d !== undefined) {
-                      // Exit is ~5 trading days after entry
-                      const entryDate = new Date(entryTimeStr);
-                      const exitDate = new Date(entryDate);
-                      exitDate.setDate(exitDate.getDate() + 7);
-                      exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
-                      exitPrice = trade.close5d;
+                    }
+
+                    // Round exit time to nearest candle from actual chart data
+                    if (exitTime && stockData?.bars) {
+                      const candleTimes = stockData.bars.map(bar => Math.floor(new Date(bar.bucket).getTime() / 1000));
+                      const nearestCandleTime = candleTimes
+                        .filter(time => time <= (exitTime as number))
+                        .sort((a, b) => b - a)[0];
+                      if (nearestCandleTime) {
+                        exitTime = nearestCandleTime as Time;
+                      }
+                    }
+
+                    // Round exit price based on zone type
+                    if (exitPrice !== undefined) {
+                      const zoneType = (trade.zoneType || 'demand').toLowerCase();
+                      if (zoneType === 'demand') {
+                        exitPrice = Math.floor(exitPrice * 100) / 100;
+                      } else {
+                        exitPrice = Math.ceil(exitPrice * 100) / 100;
+                      }
                     }
 
                     // Create the trade marker primitive
@@ -2303,13 +2355,46 @@ export default function DashboardPage() {
             if (trade.exitTime) {
               exitTime = Math.floor(new Date(trade.exitTime).getTime() / 1000) as Time;
               exitPrice = trade.exitPrice || undefined;
-            } else if (trade.close5d !== null && trade.close5d !== undefined) {
-              // Exit is ~5 trading days after entry
-              const entryDate = new Date(entryTimeStr);
-              const exitDate = new Date(entryDate);
-              exitDate.setDate(exitDate.getDate() + 7);
-              exitTime = Math.floor(exitDate.getTime() / 1000) as Time;
-              exitPrice = trade.close5d;
+            }
+
+            // Round exit time to nearest candle from actual chart data
+            if (exitTime && stockData?.bars) {
+              const originalExitTime = exitTime;
+              // Find the nearest candle at or before the exit time
+              const candleTimes = stockData.bars.map(bar => Math.floor(new Date(bar.bucket).getTime() / 1000));
+              const nearestCandleTime = candleTimes
+                .filter(time => time <= (exitTime as number))
+                .sort((a, b) => b - a)[0]; // Get the closest time before or at exit
+
+              if (nearestCandleTime) {
+                exitTime = nearestCandleTime as Time;
+
+                // Debug for zone 137967
+                if (trade.zoneId === '137967' || trade.zone_id === '137967') {
+                  console.log('[Zone 137967 Exit Time Rounding]', {
+                    zoneId: trade.zoneId || trade.zone_id,
+                    timeframe: trade.timeframe,
+                    originalExitTime,
+                    originalExitTimeDate: new Date((originalExitTime as number) * 1000).toISOString(),
+                    roundedExitTime: exitTime,
+                    roundedExitTimeDate: new Date((exitTime as number) * 1000).toISOString(),
+                    exitPrice,
+                    zoneType: trade.zoneType
+                  });
+                }
+              }
+            }
+
+            // Round exit price based on zone type
+            if (exitPrice !== undefined) {
+              const zoneType = (trade.zoneType || 'demand').toLowerCase();
+              if (zoneType === 'demand') {
+                // Demand zone (long): Floor price down to 2 decimals
+                exitPrice = Math.floor(exitPrice * 100) / 100;
+              } else {
+                // Supply zone (short): Ceil price up to 2 decimals
+                exitPrice = Math.ceil(exitPrice * 100) / 100;
+              }
             }
 
             // Create the trade marker primitive
