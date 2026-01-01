@@ -4,7 +4,7 @@ import {
   BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, TrendingDown, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
   MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, Layers
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -986,6 +986,13 @@ export default function CryptoDashboardPage() {
   const tradeMarkerPrimitivesRef = useRef<TradeMarkerPrimitive[]>([]);
   const tradeMarkerPrimitiveRef = useRef<TradeMarkerPrimitive | null>(null);
 
+  // Show zones toggle
+  const [showZones, setShowZones] = useState(true);
+
+  // Chart settings dropdown
+  const [showChartSettings, setShowChartSettings] = useState(false);
+  const chartSettingsRef = useRef<HTMLDivElement>(null);
+
   // Backtest state
   const [backtestConfig, setBacktestConfig] = useState<BacktestConfig>({
     symbol: '',
@@ -1936,7 +1943,7 @@ export default function CryptoDashboardPage() {
       }
 
       // Create zone primitives using lightweight-charts primitive system
-      if (zonesData && zonesData.zones && candleData.length > 0) {
+      if (showZones && zonesData && zonesData.zones && candleData.length > 0) {
         zonesData.zones.forEach((zone: any) => {
           try {
             const isDemand = zone.zone_type.toLowerCase() === 'demand';
@@ -2347,7 +2354,7 @@ export default function CryptoDashboardPage() {
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [cryptoData, zonesData, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData]);
+  }, [cryptoData, zonesData, showZones, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData]);
 
   const isLocked = user.role === "free";
 
@@ -2490,97 +2497,153 @@ export default function CryptoDashboardPage() {
                     <option>31d</option>
                     <option>93d</option>
                   </select>
-                  <div className="relative">
-                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Zone ID... Press Enter"
-                      value={zoneSearchQuery}
-                      onChange={(e) => setZoneSearchQuery(e.target.value)}
-                      onKeyDown={handleZoneIdSearch}
-                      disabled={fetching}
-                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-                    />
+                  {/* Chart Settings Dropdown */}
+                  <div className="relative" ref={chartSettingsRef}>
+                    <button
+                      onClick={() => setShowChartSettings(!showChartSettings)}
+                      className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
+                        showChartSettings
+                          ? 'bg-accent/20 border-accent text-accent'
+                          : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
+                      }`}
+                      title="Chart Settings"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Settings
+                    </button>
+                    {showChartSettings && (
+                      <div className="absolute right-0 top-full mt-1 w-80 bg-panel border border-border rounded-lg shadow-lg z-50 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-medium text-primary">Chart Settings</h3>
+                          <button
+                            onClick={() => setShowChartSettings(false)}
+                            className="text-secondary hover:text-primary"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        {/* Search Input */}
+                        <div className="space-y-2 mb-4">
+                          <div className="relative">
+                            <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="Zone ID... Press Enter"
+                              value={zoneSearchQuery}
+                              onChange={(e) => setZoneSearchQuery(e.target.value)}
+                              onKeyDown={handleZoneIdSearch}
+                              disabled={fetching}
+                              className="w-full bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Toggle Switches */}
+                        <div className="space-y-3 mb-4">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <Layers className="h-4 w-4" />
+                              Show Zones
+                            </span>
+                            <button
+                              onClick={() => setShowZones(!showZones)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showZones ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showZones ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <Target className="h-4 w-4" />
+                              Show Trades
+                            </span>
+                            <button
+                              onClick={() => setShowTradesOnChart(!showTradesOnChart)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showTradesOnChart ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showTradesOnChart ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <BarChart3 className="h-4 w-4" />
+                              Volume Profile
+                            </span>
+                            <button
+                              onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showVolumeProfile ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showVolumeProfile ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                        </div>
+
+                        {/* Volume Profile Settings (only show when VP is active) */}
+                        {showVolumeProfile && (
+                          <div className="border-t border-border pt-3 space-y-2">
+                            <div className="text-xs text-secondary font-medium mb-2">Volume Profile Settings</div>
+                            <select
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                              value={volumeProfileNumBins}
+                              onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
+                              title="Number of bins"
+                            >
+                              <option value={25}>25 bins</option>
+                              <option value={50}>50 bins</option>
+                              <option value={75}>75 bins</option>
+                              <option value={100}>100 bins</option>
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-xs text-secondary">From:</label>
+                                <input
+                                  type="date"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                                  value={volumeProfileStartDate}
+                                  onChange={(e) => setVolumeProfileStartDate(e.target.value)}
+                                />
+                                <input
+                                  type="time"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer mt-1"
+                                  value={volumeProfileStartTime}
+                                  onChange={(e) => setVolumeProfileStartTime(e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-secondary">To:</label>
+                                <input
+                                  type="date"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                                  value={volumeProfileEndDate}
+                                  onChange={(e) => setVolumeProfileEndDate(e.target.value)}
+                                />
+                                <input
+                                  type="time"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer mt-1"
+                                  value={volumeProfileEndTime}
+                                  onChange={(e) => setVolumeProfileEndTime(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <span className="text-xs text-accent font-medium">(UTC)</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {/* Volume Profile Toggle */}
-                  <button
-                    onClick={() => setShowVolumeProfile(!showVolumeProfile)}
-                    className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
-                      showVolumeProfile
-                        ? 'bg-accent/20 border-accent text-accent'
-                        : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
-                    }`}
-                    title="Toggle Volume Profile"
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                    VP
-                  </button>
-                  {/* Show Trades Toggle */}
-                  <button
-                    onClick={() => setShowTradesOnChart(!showTradesOnChart)}
-                    className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
-                      showTradesOnChart
-                        ? 'bg-accent/20 border-accent text-accent'
-                        : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
-                    }`}
-                    title="Show trade entry/exit markers on chart"
-                  >
-                    <Target className="h-4 w-4" />
-                    Trades
-                  </button>
-                  {/* Volume Profile Controls (only show when VP is active) */}
-                  {showVolumeProfile && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <select
-                        className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
-                        value={volumeProfileNumBins}
-                        onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
-                        title="Number of bins"
-                      >
-                        <option value={25}>25 bins</option>
-                        <option value={50}>50 bins</option>
-                        <option value={75}>75 bins</option>
-                        <option value={100}>100 bins</option>
-                      </select>
-                      {/* Start Date and Time */}
-                      <div className="flex items-center gap-1">
-                        <label className="text-xs text-secondary whitespace-nowrap">From:</label>
-                        <input
-                          type="date"
-                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                          value={volumeProfileStartDate}
-                          onChange={(e) => setVolumeProfileStartDate(e.target.value)}
-                          title="Start date for volume profile"
-                        />
-                        <input
-                          type="time"
-                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                          value={volumeProfileStartTime}
-                          onChange={(e) => setVolumeProfileStartTime(e.target.value)}
-                          title="Start time (UTC)"
-                        />
-                      </div>
-                      {/* End Date and Time */}
-                      <div className="flex items-center gap-1">
-                        <label className="text-xs text-secondary whitespace-nowrap">To:</label>
-                        <input
-                          type="date"
-                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                          value={volumeProfileEndDate}
-                          onChange={(e) => setVolumeProfileEndDate(e.target.value)}
-                          title="End date for volume profile"
-                        />
-                        <input
-                          type="time"
-                          className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                          value={volumeProfileEndTime}
-                          onChange={(e) => setVolumeProfileEndTime(e.target.value)}
-                          title="End time (UTC)"
-                        />
-                      </div>
-                      <span className="text-xs text-accent font-medium">(UTC)</span>
-                    </div>
-                  )}
                 </div>
                 {/* <div className="flex gap-2 items-center">
                   <div
@@ -2726,36 +2789,44 @@ export default function CryptoDashboardPage() {
                         <div className="bg-background rounded-lg p-3">
                           <div className="text-xs text-secondary">Total Trades</div>
                           <div className="text-xl font-bold text-primary">{tradesData.summary.totalTrades}</div>
+                          <div className="text-xs text-secondary mt-1">{tradesData.summary.closedTrades} closed</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
                           <div className="text-xs text-secondary">Win Rate</div>
                           <div className="text-xl font-bold text-success">{tradesData.summary.winRate}%</div>
-                        </div>
-                        <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Wins / Losses</div>
-                          <div className="text-xl font-bold">
-                            <span className="text-success">{tradesData.summary.wins}</span>
+                          <div className="text-xs text-secondary mt-1">
+                            <span className="text-success">{tradesData.summary.wins}W</span>
                             <span className="text-secondary"> / </span>
-                            <span className="text-red-500">{tradesData.summary.losses}</span>
+                            <span className="text-red-500">{tradesData.summary.losses}L</span>
                           </div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Total P&L</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL) >= 0 ? '+' : ''}{tradesData.summary.totalPnlPercent || tradesData.summary.totalPnL}%
+                          <div className="text-xs text-secondary">Expectancy %</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.expectancyPercent || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.expectancyPercent || '0') >= 0 ? '+' : ''}{tradesData.summary.expectancyPercent || '0'}%
                           </div>
+                          <div className="text-xs text-secondary mt-1">per trade</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Avg P&L</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn}%
+                          <div className="text-xs text-secondary">Expectancy R</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.expectancyR || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.expectancyR || '0') >= 0 ? '+' : ''}{tradesData.summary.expectancyR || '0'}R
                           </div>
+                          <div className="text-xs text-secondary mt-1">per trade</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Avg R-Multiple</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? '+' : ''}{tradesData.summary.avgRMultiple || '0'}R
+                          <div className="text-xs text-secondary">Avg Win</div>
+                          <div className="text-xl font-bold text-success">
+                            +{tradesData.summary.avgWinPercent || '0'}%
                           </div>
+                          <div className="text-xs text-success mt-1">+{tradesData.summary.avgWinR || '0'}R</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg Loss</div>
+                          <div className="text-xl font-bold text-red-500">
+                            {tradesData.summary.avgLossPercent || '0'}%
+                          </div>
+                          <div className="text-xs text-red-500 mt-1">-{tradesData.summary.avgLossR || '0'}R</div>
                         </div>
                       </div>
                       {/* Trades Table */}

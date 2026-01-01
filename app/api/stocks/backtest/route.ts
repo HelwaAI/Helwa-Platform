@@ -25,13 +25,16 @@ const pool = new Pool({
  * - holding_period: Use pre-calculated returns from zone_first_retests_cache
  * - stop_target: Traditional stop loss / target exit (requires intraday simulation)
  * - hvn_target: Exit when price reaches next HVN level
+ * - historical_trades: Use actual historical trades from historical_trades table with Kelly sizing
  */
-type ExitStrategy = 'holding_period' | 'stop_target' | 'hvn_target';
+type ExitStrategy = 'holding_period' | 'stop_target' | 'hvn_target' | 'historical_trades';
 
 /**
  * Holding Period Options (days)
  */
 type HoldingPeriod = 1 | 2 | 3 | 5 | 10 | 20 | 22 | 65;
+
+type ZoneTypeFilter = 'all' | 'demand' | 'supply';
 
 interface BacktestParams {
   symbols: string[];
@@ -43,6 +46,8 @@ interface BacktestParams {
   holding_period?: HoldingPeriod;  // For holding_period strategy
   min_risk_reward?: number;        // For stop_target strategy
   hvn_lookback_days?: number;      // For hvn_target strategy
+  timeframe_ids?: number[];        // For historical_trades strategy (multiple timeframes)
+  zone_type?: ZoneTypeFilter;      // Filter by zone type: demand, supply, or all
 }
 
 /**
@@ -116,7 +121,8 @@ export async function GET(request: Request) {
       exit_strategies: {
         holding_period: 'Use pre-calculated close prices at fixed holding periods (1d, 2d, 3d, 5d, 10d, 20d, 22d, 65d)',
         stop_target: 'Traditional stop loss at zone boundary, target at R:R multiple',
-        hvn_target: 'Exit when price reaches next HVN (High Volume Node) level'
+        hvn_target: 'Exit when price reaches next HVN (High Volume Node) level',
+        historical_trades: 'Use actual historical trades with Kelly criterion position sizing'
       },
       endpoints: {
         'GET ?action=symbols': 'List available symbols with retest data',
@@ -182,7 +188,9 @@ export async function POST(request: Request) {
       exit_strategy: body.exit_strategy || 'holding_period',
       holding_period: body.holding_period || 5,
       min_risk_reward: body.min_risk_reward || 3.0,
-      hvn_lookback_days: body.hvn_lookback_days || 90
+      hvn_lookback_days: body.hvn_lookback_days || 90,
+      timeframe_ids: body.timeframe_ids || [4],  // Default to 5m timeframe, supports multiple
+      zone_type: body.zone_type || 'all'  // Default to all zones (demand + supply)
     };
 
     let results;
@@ -196,6 +204,9 @@ export async function POST(request: Request) {
         break;
       case 'hvn_target':
         results = await runHVNTargetBacktest(params);
+        break;
+      case 'historical_trades':
+        results = await runHistoricalTradesBacktest(params);
         break;
       default:
         return NextResponse.json(
@@ -783,6 +794,410 @@ async function runHVNTargetBacktest(params: BacktestParams) {
   }
 
   return buildResults(trades, initial_capital, cash, symbols, symbolStats, kellyParams, params.exit_strategy);
+}
+
+/**
+ * HISTORICAL TRADES BACKTEST
+ *
+ * Uses actual historical trades from the historical_trades table.
+ * Implements proper portfolio simulation with event-driven capital tracking:
+ * - Capital is locked when entering a trade and released when exiting
+ * - Processes entry and exit events chronologically
+ * - Skips trades when insufficient capital is available
+ * - Respects max_positions limit
+ *
+ * Calculates Kelly criterion from overall historical trade statistics for position sizing.
+ * Kelly % = Win Rate - [(1 - Win Rate) / Risk:Reward Ratio]
+ * Always uses Half-Kelly for position sizing.
+ *
+ * Filters to only include symbols rated as 'compliant' or 'questionable'.
+ */
+async function runHistoricalTradesBacktest(params: BacktestParams) {
+  const { symbols, start_date, end_date, initial_capital, max_positions, timeframe_ids = [4], zone_type = 'all' } = params;
+
+  // Build timeframe filter for multiple timeframes
+  const timeframePlaceholders = timeframe_ids.map((_, i) => `$${i + 1}`).join(', ');
+
+  // Build zone type filter
+  const zoneTypeFilter = zone_type === 'all' ? '' : `AND ht.zone_type = '${zone_type}'`;
+
+  // First, calculate Kelly parameters from ALL historical trades for the selected timeframes
+  // Filter by compliant/questionable symbols only and zone type
+  const kellyQuery = `
+    WITH trade_stats AS (
+      SELECT
+        ht.outcome,
+        ht.risk_reward_ratio,
+        CASE WHEN ht.outcome = 'WIN' THEN 1 ELSE 0 END as is_win
+      FROM stocks.historical_trades ht
+      JOIN stocks.symbols s ON ht.symbol = s.symbol
+      WHERE ht.timeframe_id IN (${timeframePlaceholders})
+        AND ht.outcome IS NOT NULL
+        AND ht.risk_reward_ratio IS NOT NULL
+        AND s.compliance IN ('compliant', 'questionable')
+        ${zoneTypeFilter}
+    )
+    SELECT
+      COUNT(*) as total_trades,
+      SUM(is_win) as wins,
+      AVG(is_win) as win_rate,
+      AVG(risk_reward_ratio) as avg_rr_ratio
+    FROM trade_stats
+  `;
+
+  const kellyResult = await pool.query(kellyQuery, timeframe_ids);
+  const kellyRow = kellyResult.rows[0];
+
+  let kellyParams: any;
+  if (!kellyRow || parseInt(kellyRow.total_trades) === 0) {
+    kellyParams = { winRate: 0.5, avgRRRatio: 3, kellyFraction: 0, halfKellyFraction: 0.05, numTrades: 0 };
+  } else {
+    const winRate = parseFloat(kellyRow.win_rate) || 0.5;
+    const avgRRRatio = parseFloat(kellyRow.avg_rr_ratio) || 3;
+    const numTrades = parseInt(kellyRow.total_trades);
+
+    // Kelly formula: Kelly % = Win Rate - [(1 - Win Rate) / Risk:Reward Ratio]
+    let kelly = avgRRRatio > 0 ? winRate - ((1 - winRate) / avgRRRatio) : 0;
+    kelly = Math.max(0, Math.min(kelly, 0.25)); // Cap at 25%
+
+    kellyParams = {
+      winRate,
+      avgRRRatio,
+      kellyFraction: kelly,
+      halfKellyFraction: kelly / 2,
+      numTrades
+    };
+  }
+
+  // Always use Half-Kelly for position sizing
+  const halfKelly = Math.max(kellyParams.halfKellyFraction, 0.02); // Minimum 2% position size
+
+  // Query historical trades for the specified symbols, date range, and timeframes
+  // Filter by compliant/questionable symbols only
+  const baseParamOffset = timeframe_ids.length;
+
+  let tradesQuery: string;
+  let queryParams: any[];
+
+  if (symbols.length === 0 || (symbols.length === 1 && symbols[0] === '')) {
+    // No symbol filter - get all compliant/questionable trades
+    tradesQuery = `
+      SELECT
+        ht.trade_id,
+        ht.symbol,
+        ht.zone_type,
+        ht.zone_id,
+        ht.zone_bottom,
+        ht.zone_top,
+        ht.entry_time,
+        ht.entry_price,
+        ht.stop_price,
+        ht.target_price,
+        ht.risk_amount,
+        ht.reward_amount,
+        ht.risk_reward_ratio,
+        ht.outcome,
+        ht.exit_time,
+        ht.exit_price,
+        ht.exit_reason,
+        ht.pnl_points,
+        ht.pnl_percent,
+        ht.r_multiple,
+        ht.minutes_to_exit,
+        ht.timeframe_id,
+        s.compliance as symbol_compliance
+      FROM stocks.historical_trades ht
+      JOIN stocks.symbols s ON ht.symbol = s.symbol
+      WHERE ht.timeframe_id IN (${timeframePlaceholders})
+        AND ht.entry_time >= $${baseParamOffset + 1}::timestamp
+        AND ht.entry_time <= $${baseParamOffset + 2}::timestamp
+        AND ht.outcome IS NOT NULL
+        AND ht.exit_time IS NOT NULL
+        AND s.compliance IN ('compliant', 'questionable')
+        ${zoneTypeFilter}
+      ORDER BY ht.entry_time ASC
+    `;
+    queryParams = [...timeframe_ids, start_date, end_date];
+  } else {
+    // Filter by symbols AND compliant/questionable compliance
+    const symbolPlaceholders = symbols.map((_, i) => `$${baseParamOffset + 3 + i}`).join(', ');
+    tradesQuery = `
+      SELECT
+        ht.trade_id,
+        ht.symbol,
+        ht.zone_type,
+        ht.zone_id,
+        ht.zone_bottom,
+        ht.zone_top,
+        ht.entry_time,
+        ht.entry_price,
+        ht.stop_price,
+        ht.target_price,
+        ht.risk_amount,
+        ht.reward_amount,
+        ht.risk_reward_ratio,
+        ht.outcome,
+        ht.exit_time,
+        ht.exit_price,
+        ht.exit_reason,
+        ht.pnl_points,
+        ht.pnl_percent,
+        ht.r_multiple,
+        ht.minutes_to_exit,
+        ht.timeframe_id,
+        s.compliance as symbol_compliance
+      FROM stocks.historical_trades ht
+      JOIN stocks.symbols s ON ht.symbol = s.symbol
+      WHERE ht.timeframe_id IN (${timeframePlaceholders})
+        AND ht.entry_time >= $${baseParamOffset + 1}::timestamp
+        AND ht.entry_time <= $${baseParamOffset + 2}::timestamp
+        AND ht.symbol IN (${symbolPlaceholders})
+        AND ht.outcome IS NOT NULL
+        AND ht.exit_time IS NOT NULL
+        AND s.compliance IN ('compliant', 'questionable')
+        ${zoneTypeFilter}
+      ORDER BY ht.entry_time ASC
+    `;
+    queryParams = [...timeframe_ids, start_date, end_date, ...symbols];
+  }
+
+  const tradesResult = await pool.query(tradesQuery, queryParams);
+  const historicalTrades = tradesResult.rows;
+
+  if (historicalTrades.length === 0) {
+    return createEmptyResults(initial_capital, symbols, params.exit_strategy);
+  }
+
+  // Get unique symbols from trades for symbol breakdown
+  const uniqueSymbols = [...new Set(historicalTrades.map(t => t.symbol))];
+
+  // ============================================================
+  // EVENT-DRIVEN PORTFOLIO SIMULATION
+  // ============================================================
+  // Create events for entries and exits, process chronologically
+  // Capital is locked on entry and released on exit
+
+  interface TradeEvent {
+    type: 'entry' | 'exit';
+    timestamp: Date;
+    tradeIndex: number; // Index into historicalTrades array
+  }
+
+  interface OpenPosition {
+    tradeIndex: number;
+    symbol: string;
+    shares: number;
+    capitalDeployed: number;
+    entryPrice: number;
+    stopPrice: number;
+    targetPrice: number;
+    zoneType: string;
+    entryTime: Date;
+    exitTime: Date;
+  }
+
+  // Build event queue
+  const events: TradeEvent[] = [];
+  for (let i = 0; i < historicalTrades.length; i++) {
+    const trade = historicalTrades[i];
+    const entryTime = new Date(trade.entry_time);
+    const exitTime = new Date(trade.exit_time);
+
+    events.push({ type: 'entry', timestamp: entryTime, tradeIndex: i });
+    events.push({ type: 'exit', timestamp: exitTime, tradeIndex: i });
+  }
+
+  // Sort events chronologically (exits before entries if same timestamp to free capital first)
+  events.sort((a, b) => {
+    const timeDiff = a.timestamp.getTime() - b.timestamp.getTime();
+    if (timeDiff !== 0) return timeDiff;
+    // If same time, process exits before entries
+    if (a.type === 'exit' && b.type === 'entry') return -1;
+    if (a.type === 'entry' && b.type === 'exit') return 1;
+    return 0;
+  });
+
+  // Portfolio state
+  let availableCash = initial_capital;
+  const openPositions: Map<number, OpenPosition> = new Map(); // tradeIndex -> position
+  const completedTrades: any[] = [];
+  const symbolStats: Map<string, { trades: number; wins: number; pnl: number }> = new Map();
+  uniqueSymbols.forEach(s => symbolStats.set(s, { trades: 0, wins: 0, pnl: 0 }));
+
+  // Track skipped trades for debugging
+  let skippedNoCapital = 0;
+  let skippedMaxPositions = 0;
+
+  // Process events chronologically
+  for (const event of events) {
+    const trade = historicalTrades[event.tradeIndex];
+
+    if (event.type === 'exit') {
+      // EXIT EVENT: Release capital back to available cash
+      const position = openPositions.get(event.tradeIndex);
+      if (!position) continue; // Position was never opened (skipped at entry)
+
+      const exitPrice = parseFloat(trade.exit_price);
+      const outcome = trade.outcome;
+
+      // Calculate P&L based on zone type
+      let pnl: number;
+      if (position.zoneType === 'demand') {
+        // Long trade
+        pnl = (exitPrice - position.entryPrice) * position.shares;
+      } else {
+        // Short trade
+        pnl = (position.entryPrice - exitPrice) * position.shares;
+      }
+
+      // Return capital + P&L to available cash
+      availableCash += position.capitalDeployed + pnl;
+
+      // Calculate metrics
+      const pnlPct = (pnl / position.capitalDeployed) * 100;
+      let riskPerShare: number;
+      if (position.zoneType === 'demand') {
+        riskPerShare = position.entryPrice - position.stopPrice;
+      } else {
+        riskPerShare = position.stopPrice - position.entryPrice;
+      }
+      const riskAmount = position.shares * riskPerShare;
+      const actualRMultiple = riskAmount > 0 ? pnl / riskAmount : 0;
+
+      // Calculate days held
+      const daysHeld = Math.ceil((position.exitTime.getTime() - position.entryTime.getTime()) / (1000 * 60 * 60 * 24));
+
+      // Record completed trade
+      completedTrades.push({
+        zone_id: `${trade.symbol}_${trade.zone_id}`,
+        symbol: trade.symbol,
+        zone_type: position.zoneType,
+        direction: position.zoneType === 'demand' ? 'Long' : 'Short',
+        entry_time: position.entryTime.toISOString(),
+        exit_time: position.exitTime.toISOString(),
+        entry_price: position.entryPrice,
+        exit_price: exitPrice,
+        stop_loss: position.stopPrice,
+        target_price: position.targetPrice,
+        shares: position.shares,
+        capital_deployed: position.capitalDeployed,
+        pnl,
+        pnl_pct: pnlPct,
+        r_multiple: actualRMultiple,
+        status: outcome === 'WIN' ? 'Win' : outcome === 'LOSS' ? 'Loss' : 'Breakeven',
+        exit_reason: trade.exit_reason || 'Unknown',
+        days_held: daysHeld,
+        available_cash_after: availableCash
+      });
+
+      // Update symbol stats
+      const stats = symbolStats.get(trade.symbol);
+      if (stats) {
+        stats.trades++;
+        stats.pnl += pnl;
+        if (pnl > 0) stats.wins++;
+      }
+
+      // Remove from open positions
+      openPositions.delete(event.tradeIndex);
+
+    } else {
+      // ENTRY EVENT: Try to open a new position
+
+      // Check max positions limit
+      if (openPositions.size >= max_positions) {
+        skippedMaxPositions++;
+        continue;
+      }
+
+      const entryPrice = parseFloat(trade.entry_price);
+      const exitTime = new Date(trade.exit_time);
+      const stopPrice = parseFloat(trade.stop_price);
+      const targetPrice = parseFloat(trade.target_price);
+      const zoneType = trade.zone_type;
+
+      // Calculate position size using Half-Kelly based on AVAILABLE cash
+      const positionValue = availableCash * halfKelly;
+      if (positionValue < 100) {
+        skippedNoCapital++;
+        continue; // Not enough capital
+      }
+
+      const shares = Math.floor(positionValue / entryPrice);
+      if (shares <= 0) {
+        skippedNoCapital++;
+        continue;
+      }
+
+      const capitalDeployed = shares * entryPrice;
+
+      // Check if we have enough available cash
+      if (capitalDeployed > availableCash) {
+        skippedNoCapital++;
+        continue;
+      }
+
+      // Calculate risk per share based on zone type
+      let riskPerShare: number;
+      if (zoneType === 'demand') {
+        riskPerShare = entryPrice - stopPrice;
+      } else {
+        riskPerShare = stopPrice - entryPrice;
+      }
+
+      if (riskPerShare <= 0) continue;
+
+      // DEPLOY CAPITAL - subtract from available cash
+      availableCash -= capitalDeployed;
+
+      // Track open position
+      openPositions.set(event.tradeIndex, {
+        tradeIndex: event.tradeIndex,
+        symbol: trade.symbol,
+        shares,
+        capitalDeployed,
+        entryPrice,
+        stopPrice,
+        targetPrice,
+        zoneType,
+        entryTime: event.timestamp,
+        exitTime
+      });
+    }
+  }
+
+  // Calculate final capital (should equal availableCash since all positions are closed)
+  const finalCapital = availableCash;
+
+  // Add debug info to results
+  const debugInfo = {
+    total_historical_trades: historicalTrades.length,
+    trades_executed: completedTrades.length,
+    skipped_no_capital: skippedNoCapital,
+    skipped_max_positions: skippedMaxPositions
+  };
+
+  return buildResultsWithDebug(completedTrades, initial_capital, finalCapital, uniqueSymbols, symbolStats, kellyParams, params.exit_strategy, debugInfo);
+}
+
+/**
+ * Build results object from trades (with debug info)
+ */
+function buildResultsWithDebug(
+  trades: any[],
+  initialCapital: number,
+  finalCash: number,
+  symbols: string[],
+  symbolStats: Map<string, { trades: number; wins: number; pnl: number }>,
+  kellyParams: any,
+  exitStrategy: string,
+  debugInfo: any
+) {
+  const baseResults = buildResults(trades, initialCapital, finalCash, symbols, symbolStats, kellyParams, exitStrategy);
+  return {
+    ...baseResults,
+    simulation_info: debugInfo
+  };
 }
 
 /**
