@@ -84,7 +84,8 @@ export async function GET(request: Request) {
         ht.discord_alerted,
         ht.timeframe_id,
         tf.label as timeframe,
-        s.compliance as symbol_compliance
+        s.compliance as symbol_compliance, 
+        ht.retest_id
     FROM stocks.historical_trades ht
     LEFT JOIN stocks.timeframes tf ON ht.timeframe_id = tf.id
     JOIN stocks.symbols s ON ht.symbol = s.symbol
@@ -210,6 +211,7 @@ export async function GET(request: Request) {
           alertedAt: row.entry_time,
           zoneStart: row.entry_time,
           retestDate: row.exit_time,
+          retestId: row.retest_id,
           retestPrice: row.exit_price ? parseFloat(row.exit_price) : null,
           close5d: row.exit_price ? parseFloat(row.exit_price) : null,
           return5d: row.pnl_percent ? parseFloat(row.pnl_percent) : null,
