@@ -7,9 +7,9 @@ import Link from 'next/link';
 interface TopPerformer {
   symbol: string;
   zone_id: number;
-  bounce_close: number;
-  return_5d: number;
-  bounce_day: string;
+  entry_price: number;
+  pnl_percent: number;
+  entry_time: string;
   zone_type: string;
 }
 
@@ -26,6 +26,7 @@ export default function TopPerformers() {
 
         if (result.success) {
           setPerformers(result.data);
+          console.log("Top Performers: ", performers);
         } else {
           setError(result.error);
         }
@@ -70,11 +71,11 @@ export default function TopPerformers() {
         <div className="grid md:grid-cols-3 gap-8">
           {performers.map((performer, index) => {
             // Parse numeric values from API response (PostgreSQL returns as strings)
-            const bounceClose = parseFloat(performer.bounce_close as any);
-            const return5d = parseFloat(performer.return_5d as any);
-            const returnPercent = return5d.toFixed(2);
+            const entry_price = parseFloat(performer.entry_price as any);
+            const pnl_percent = parseFloat(performer.pnl_percent as any);
+            const returnPercent = pnl_percent.toFixed(2);
             // Parse ISO date string (e.g., "2025-12-02T08:00:00.000Z") using UTC to avoid timezone shift
-            const d = new Date(performer.bounce_day);
+            const d = new Date(performer.entry_time);
             const bounceDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
               .toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
@@ -107,12 +108,12 @@ export default function TopPerformers() {
                     <div className="flex justify-between items-center pb-3 border-b border-border/50">
                       <span className="text-sm text-secondary font-medium">Entry Price</span>
                       <span className="text-lg font-bold text-primary">
-                        ${bounceClose.toFixed(2)}
+                        ${entry_price.toFixed(2)}
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-secondary font-medium">5-Day Return</span>
+                      <span className="text-sm text-secondary font-medium">Trade Return</span>
                       <div className="flex items-center gap-1.5">
                         <TrendingUp className="h-4 w-4 text-success" />
                         <span className="text-2xl font-black text-success">

@@ -1449,3 +1449,6 @@ function createEmptyResults(initialCapital: number, symbols: string[], exitStrat
     equity_curve: []
   };
 }
+
+
+// new
