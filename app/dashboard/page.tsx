@@ -4,7 +4,7 @@ import {
   BarChart3, Bell, Bot, Home, LogOut, Settings, TrendingUp, TrendingDown, Activity,
   LineChart, PieChart, Wallet, Target, Zap, Lock, Crown, ArrowRight,
   MessageSquare, Send, X, Search, Coins, FlaskConical, DollarSign,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, Layers
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
@@ -503,21 +503,33 @@ interface TradeMarkerOptions {
   exitPrice?: number;
   outcome: 'WIN' | 'LOSS' | 'BREAKEVEN' | 'PENDING' | null;
   zoneType: 'demand' | 'supply';
+  // R:R overlay properties
+  stopPrice?: number;
+  targetPrice?: number;
+  riskRewardRatio?: number;
+  riskAmount?: number;
+  rewardAmount?: number;
 }
 
-// Renderer that draws trade markers (triangles/arrows)
+// Renderer that draws trade markers (triangles/arrows) and R:R overlay zones
 class TradeMarkerRenderer {
   private _entryCoord: { x: number | null; y: number | null };
   private _exitCoord: { x: number | null; y: number | null };
+  private _stopCoord: { y: number | null };
+  private _targetCoord: { y: number | null };
   private _options: TradeMarkerOptions;
 
   constructor(
     entryCoord: { x: number | null; y: number | null },
     exitCoord: { x: number | null; y: number | null },
+    stopCoord: { y: number | null },
+    targetCoord: { y: number | null },
     options: TradeMarkerOptions
   ) {
     this._entryCoord = entryCoord;
     this._exitCoord = exitCoord;
+    this._stopCoord = stopCoord;
+    this._targetCoord = targetCoord;
     this._options = options;
   }
 
@@ -526,6 +538,125 @@ class TradeMarkerRenderer {
       const ctx = scope.context;
       const hRatio = scope.horizontalPixelRatio;
       const vRatio = scope.verticalPixelRatio;
+      const bitmapWidth = scope.bitmapSize.width;
+
+      // Draw R:R overlay zones (profit zone green, stop zone red) - TradingView style
+      if (this._entryCoord.x !== null && this._entryCoord.y !== null &&
+          this._stopCoord.y !== null && this._targetCoord.y !== null) {
+        const ex = Math.round(this._entryCoord.x * hRatio);
+        const ey = Math.round(this._entryCoord.y * vRatio);
+        const stopY = Math.round(this._stopCoord.y * vRatio);
+        const targetY = Math.round(this._targetCoord.y * vRatio);
+
+        // Zone width - extends from entry point to exit time (or right edge if no exit)
+        let zoneWidth: number;
+        if (this._exitCoord.x !== null) {
+          // End at exit time
+          const exitX = Math.round(this._exitCoord.x * hRatio);
+          zoneWidth = exitX - ex;
+        } else {
+          // No exit yet, extend to right edge
+          zoneWidth = bitmapWidth - ex;
+        }
+
+        // Ensure minimum width for visibility
+        zoneWidth = Math.max(zoneWidth, 20 * hRatio);
+
+        const labelPadding = 8 * hRatio;
+        const labelHeight = 20 * vRatio;
+
+        // Draw profit/target zone (green) - between entry and target
+        ctx.fillStyle = 'rgba(38, 166, 154, 0.15)'; // Teal/green translucent
+        ctx.fillRect(ex, Math.min(ey, targetY), zoneWidth, Math.abs(targetY - ey));
+
+        // Profit zone border
+        ctx.strokeStyle = 'rgba(38, 166, 154, 0.6)';
+        ctx.lineWidth = 1 * hRatio;
+        ctx.strokeRect(ex, Math.min(ey, targetY), zoneWidth, Math.abs(targetY - ey));
+
+        // Draw stop/risk zone (red) - between entry and stop
+        ctx.fillStyle = 'rgba(239, 83, 80, 0.15)'; // Red translucent
+        ctx.fillRect(ex, Math.min(ey, stopY), zoneWidth, Math.abs(stopY - ey));
+
+        // Stop zone border
+        ctx.strokeStyle = 'rgba(239, 83, 80, 0.6)';
+        ctx.lineWidth = 1 * hRatio;
+        ctx.strokeRect(ex, Math.min(ey, stopY), zoneWidth, Math.abs(stopY - ey));
+
+        // Prepare label text and measurements
+        const targetPrice = this._options.targetPrice || 0;
+        const targetPct = this._options.rewardAmount && this._options.entryPrice
+          ? ((targetPrice - this._options.entryPrice) / this._options.entryPrice * 100).toFixed(2)
+          : '0.00';
+        const targetLabel = `Target: ${targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${parseFloat(targetPct) >= 0 ? '+' : ''}${targetPct}%)`;
+
+        const stopPrice = this._options.stopPrice || 0;
+        const stopPct = this._options.riskAmount && this._options.entryPrice
+          ? ((stopPrice - this._options.entryPrice) / this._options.entryPrice * 100).toFixed(2)
+          : '0.00';
+        const stopLabel = `Stop: ${stopPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${parseFloat(stopPct) >= 0 ? '+' : ''}${stopPct}%)`;
+
+        const entryPrice = this._options.entryPrice || 0;
+        const rr = this._options.riskRewardRatio?.toFixed(2) || '0.00';
+        const entryLabel = `Entry: ${entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, R:R ${rr}`;
+
+        ctx.font = `bold ${11 * vRatio}px sans-serif`;
+        const targetTextWidth = ctx.measureText(targetLabel).width;
+        const stopTextWidth = ctx.measureText(stopLabel).width;
+        const entryTextWidth = ctx.measureText(entryLabel).width;
+
+        // Determine if demand or supply zone
+        const isDemand = this._options.zoneType === 'demand';
+
+        // Calculate cluster position - below zone for demand, above zone for supply
+        // For demand: stop is below entry, target is above entry
+        // For supply: stop is above entry, target is below entry
+        const labelClusterX = ex + labelPadding;
+        const labelSpacing = 4 * vRatio; // Space between labels
+
+        let clusterBaseY: number;
+        if (isDemand) {
+          // Demand zone: labels go below the stop (bottom of the zone)
+          clusterBaseY = Math.max(stopY, ey) + labelPadding;
+        } else {
+          // Supply zone: labels go above the stop (top of the zone)
+          clusterBaseY = Math.min(stopY, ey) - labelPadding - (labelHeight * 3) - (labelSpacing * 2);
+        }
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+
+        // Draw Entry label (first in cluster)
+        const entryLabelY = clusterBaseY;
+        ctx.fillStyle = 'rgba(0, 188, 212, 0.9)';
+        ctx.fillRect(labelClusterX, entryLabelY, entryTextWidth + labelPadding * 2, labelHeight);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(entryLabel, labelClusterX + labelPadding, entryLabelY + labelHeight / 2);
+
+        // Draw Target label (second in cluster)
+        const targetLabelY = entryLabelY + labelHeight + labelSpacing;
+        ctx.fillStyle = 'rgba(38, 166, 154, 0.9)';
+        ctx.fillRect(labelClusterX, targetLabelY, targetTextWidth + labelPadding * 2, labelHeight);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(targetLabel, labelClusterX + labelPadding, targetLabelY + labelHeight / 2);
+
+        // Draw Stop label (third in cluster)
+        const stopLabelY = targetLabelY + labelHeight + labelSpacing;
+        ctx.fillStyle = 'rgba(239, 83, 80, 0.9)';
+        ctx.fillRect(labelClusterX, stopLabelY, stopTextWidth + labelPadding * 2, labelHeight);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(stopLabel, labelClusterX + labelPadding, stopLabelY + labelHeight / 2);
+
+        // Draw dashed entry line across the zone
+        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
+        ctx.strokeStyle = 'rgba(0, 188, 212, 0.8)';
+        ctx.lineWidth = 1.5 * hRatio;
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex + zoneWidth, ey);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       // Draw entry marker (upward triangle for demand/buy, downward for supply/sell)
       if (this._entryCoord.x !== null && this._entryCoord.y !== null) {
@@ -553,22 +684,6 @@ class TradeMarkerRenderer {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-
-        // Entry label
-        ctx.fillStyle = '#00BCD4';
-        ctx.font = `bold ${10 * vRatio}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText('ENTRY', ex, ey - size - 5 * vRatio);
-
-        // Entry price line (dashed horizontal)
-        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
-        ctx.strokeStyle = 'rgba(0, 188, 212, 0.6)';
-        ctx.lineWidth = 1 * hRatio;
-        ctx.beginPath();
-        ctx.moveTo(ex - 100 * hRatio, ey);
-        ctx.lineTo(ex + 100 * hRatio, ey);
-        ctx.stroke();
-        ctx.setLineDash([]);
       }
 
       // Draw exit marker if available
@@ -604,19 +719,10 @@ class TradeMarkerRenderer {
         ctx.fillStyle = exitColor;
         ctx.font = `bold ${10 * vRatio}px sans-serif`;
         ctx.textAlign = 'center';
-        const exitLabel = this._options.outcome === 'WIN' ? 'TARGET' :
-                          this._options.outcome === 'LOSS' ? 'STOP' : 'EXIT';
+        ctx.textBaseline = 'alphabetic';
+        const exitLabel = this._options.outcome === 'WIN' ? 'TARGET HIT' :
+                          this._options.outcome === 'LOSS' ? 'STOPPED' : 'EXIT';
         ctx.fillText(exitLabel, xx, xy - size - 5 * vRatio);
-
-        // Exit price line (dashed horizontal)
-        ctx.setLineDash([5 * hRatio, 3 * hRatio]);
-        ctx.strokeStyle = `${exitColor}99`;
-        ctx.lineWidth = 1 * hRatio;
-        ctx.beginPath();
-        ctx.moveTo(xx - 100 * hRatio, xy);
-        ctx.lineTo(xx + 100 * hRatio, xy);
-        ctx.stroke();
-        ctx.setLineDash([]);
       }
 
       // Draw connecting line between entry and exit
@@ -627,8 +733,8 @@ class TradeMarkerRenderer {
         const xx = Math.round(this._exitCoord.x * hRatio);
         const xy = Math.round(this._exitCoord.y * vRatio);
 
-        const lineColor = this._options.outcome === 'WIN' ? 'rgba(76, 175, 80, 0.4)' :
-                          this._options.outcome === 'LOSS' ? 'rgba(255, 82, 82, 0.4)' : 'rgba(255, 193, 7, 0.4)';
+        const lineColor = this._options.outcome === 'WIN' ? 'rgba(76, 175, 80, 0.6)' :
+                          this._options.outcome === 'LOSS' ? 'rgba(255, 82, 82, 0.6)' : 'rgba(255, 193, 7, 0.6)';
 
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = 2 * hRatio;
@@ -648,6 +754,8 @@ class TradeMarkerPaneView {
   private _source: TradeMarkerPrimitive;
   private _entryCoord: { x: number | null; y: number | null } = { x: null, y: null };
   private _exitCoord: { x: number | null; y: number | null } = { x: null, y: null };
+  private _stopCoord: { y: number | null } = { y: null };
+  private _targetCoord: { y: number | null } = { y: null };
 
   constructor(source: TradeMarkerPrimitive) {
     this._source = source;
@@ -676,10 +784,24 @@ class TradeMarkerPaneView {
     } else {
       this._exitCoord = { x: null, y: null };
     }
+
+    // Convert stop and target price coordinates for R:R overlay
+    if (options.stopPrice) {
+      this._stopCoord = { y: series.priceToCoordinate(options.stopPrice) };
+    }
+    if (options.targetPrice) {
+      this._targetCoord = { y: series.priceToCoordinate(options.targetPrice) };
+    }
   }
 
   renderer() {
-    return new TradeMarkerRenderer(this._entryCoord, this._exitCoord, this._source.options);
+    return new TradeMarkerRenderer(
+      this._entryCoord,
+      this._exitCoord,
+      this._stopCoord,
+      this._targetCoord,
+      this._source.options
+    );
   }
 }
 
@@ -792,6 +914,7 @@ interface Trade {
   rMultiple: number | null;
   discordAlerted: boolean;
   timeframe: string | null;
+  timeframeId: number | null;
   // Legacy field mappings for backward compatibility
   alertId: number;
   stopLoss: number;
@@ -843,6 +966,10 @@ interface StrategyData {
 }
 
 // Backtest interfaces
+type BacktestExitStrategy = 'holding_period' | 'stop_target' | 'hvn_target' | 'historical_trades';
+
+type BacktestZoneType = 'all' | 'demand' | 'supply';
+
 interface BacktestConfig {
   symbol: string;
   symbols: string[];  // Multi-symbol support
@@ -853,6 +980,9 @@ interface BacktestConfig {
   max_positions: number;
   min_risk_reward: number;
   holding_period: number;
+  exit_strategy: BacktestExitStrategy;
+  timeframe_ids: number[];  // Multiple timeframes support for historical_trades
+  zone_type: BacktestZoneType;  // Filter by zone type: demand, supply, or all
 }
 
 interface BacktestTrade {
@@ -941,6 +1071,28 @@ function parseTimeframeToMinutes(timeframe: string): number | null {
   }
 }
 
+// Map selectedTimeframeKey (UI values) to timeframe_id (database IDs)
+const timeframeKeyToIdMap: Record<string, number> = {
+  "2min": 2,
+  "3min": 3,
+  "5min": 4,
+  "6min": 5,
+  "10min": 6,
+  "13min": 7,
+  "15min": 8,
+  "26min": 9,
+  "30min": 10,
+  "39min": 11,
+  "65min": 12,
+  "78min": 13,
+  "130min": 14,
+  "195min": 15,
+  "daily": 16,
+  "5d": 18,
+  "22d": 19,
+  "65d": 20,
+};
+
 export default function DashboardPage() {
   const [chatOpen, setChatOpen] = useState(true);
   const [user, setUser] = useState<UserInfo>({ name: "User", email: "user-admin@helwa.ai", role: "admin" });
@@ -955,6 +1107,9 @@ export default function DashboardPage() {
   const [zonesData, setZonesData] = useState<any>(null);
   const [volumeProfileData, setVolumeProfileData] = useState<VolumeProfileData | null>(null);
   const [showVolumeProfile, setShowVolumeProfile] = useState(false);
+  const [showZones, setShowZones] = useState(true);
+  const [showChartSettings, setShowChartSettings] = useState(false);
+  const chartSettingsRef = useRef<HTMLDivElement>(null);
   const [volumeProfileNumBins, setVolumeProfileNumBins] = useState(50);
   const [volumeProfileStartDate, setVolumeProfileStartDate] = useState(() => {
     const date = new Date();
@@ -1034,6 +1189,9 @@ export default function DashboardPage() {
     max_positions: 5,
     min_risk_reward: 3.0,
     holding_period: 5,
+    exit_strategy: 'historical_trades',  // Default to historical trades strategy
+    timeframe_ids: [4],  // Default to 5m timeframe, supports multiple
+    zone_type: 'all',  // Default to all zones (demand + supply)
   });
   const [backtestSymbols, setBacktestSymbols] = useState<BacktestSymbol[]>([]);
   const [multiSymbolMode, setMultiSymbolMode] = useState(false);  // Toggle for multi-symbol mode
@@ -1131,11 +1289,13 @@ export default function DashboardPage() {
     }
   }, [showTradesOnChart, selectedTimeframeKey]);
 
-  // Fetch trades data
+  // Fetch trades data - fetches ALL trades (no timeframe filter)
+  // Filtering by timeframe is done client-side for chart display
   const fetchTradesData = async () => {
     try {
       setTabLoading(true);
-      const response = await fetch(`/api/stocks/trades?timeframe=${timeframe}`);
+      // Fetch all trades without timeframe filter
+      const response = await fetch(`/api/stocks/trades`);
       const data = await response.json();
       if (data.success) {
         setTradesData(data.data);
@@ -1758,7 +1918,7 @@ export default function DashboardPage() {
           horzLines: { color: 'rgba(232, 213, 181, 0.1)' },
         },
         crosshair: {
-          mode: 1, // Normal crosshair mode (0 = Magnet, 1 = Normal)
+          mode: 0, // Normal crosshair mode (0 = Normal/free-flowing, 1 = Magnet/snaps to OHLC)
           vertLine: {
             width: 1,
             color: '#F59E0B', // accent color
@@ -1770,7 +1930,7 @@ export default function DashboardPage() {
             width: 1,
             color: '#F59E0B',
             style: 2,
-            labelVisible: true, // Show price label on y-axis
+            labelVisible: true, // Show price label on y-axis (free-flowing, not locked to candle)
             labelBackgroundColor: '#F59E0B',
           },
         },
@@ -1875,7 +2035,7 @@ export default function DashboardPage() {
       }
 
       // Create zone primitives using lightweight-charts primitive system
-      if (zonesData && zonesData.zones && candleData.length > 0) {
+      if (showZones && zonesData && zonesData.zones && candleData.length > 0) {
         zonesData.zones.forEach((zone: any) => {
           try {
             const isDemand = zone.zone_type.toLowerCase() === 'demand';
@@ -2234,7 +2394,12 @@ export default function DashboardPage() {
                   exitTime,
                   exitPrice,
                   outcome: trade.outcome,
-                  zoneType: trade.zoneType.toLowerCase() as 'demand' | 'supply'
+                  zoneType: trade.zoneType.toLowerCase() as 'demand' | 'supply',
+                  stopPrice: trade.stopPrice,
+                  targetPrice: trade.targetPrice,
+                  riskRewardRatio: trade.riskRewardRatio,
+                  riskAmount: trade.riskAmount,
+                  rewardAmount: trade.rewardAmount
                 });
 
                 candlestickSeries.attachPrimitive(tradeMarker);
@@ -2251,9 +2416,13 @@ export default function DashboardPage() {
               snapTimeoutRef.current = null;
 
               // Render all trades for the current symbol if showTradesOnChart is enabled
+              // Filter by both symbol AND current timeframe
               if (showTradesOnChart && tradesData && stockData) {
                 const currentSymbol = stockData.symbol;
-                const symbolTrades = tradesData.trades.filter(t => t.symbol === currentSymbol);
+                const currentTimeframeId = timeframeKeyToIdMap[selectedTimeframeKey];
+                const symbolTrades = tradesData.trades.filter(t =>
+                  t.symbol === currentSymbol && t.timeframeId === currentTimeframeId
+                );
 
                 // console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol}`);
 
@@ -2304,7 +2473,12 @@ export default function DashboardPage() {
                       exitTime,
                       exitPrice,
                       outcome: trade.outcome,
-                      zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply'
+                      zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply',
+                      stopPrice: trade.stopPrice,
+                      targetPrice: trade.targetPrice,
+                      riskRewardRatio: trade.riskRewardRatio,
+                      riskAmount: trade.riskAmount,
+                      rewardAmount: trade.rewardAmount
                     });
 
                     candlestickSeries.attachPrimitive(tradeMarker);
@@ -2332,9 +2506,13 @@ export default function DashboardPage() {
 
       // Render all trades for the current symbol if showTradesOnChart is enabled
       // This runs even when not snapping to a specific zone
+      // Filter by both symbol AND current timeframe
       if (showTradesOnChart && tradesData && stockData && !pendingZoneSnapRef.current) {
         const currentSymbol = stockData.symbol;
-        const symbolTrades = tradesData.trades.filter((t: any) => t.symbol === currentSymbol);
+        const currentTimeframeId = timeframeKeyToIdMap[selectedTimeframeKey];
+        const symbolTrades = tradesData.trades.filter((t: any) =>
+          t.symbol === currentSymbol && t.timeframeId === currentTimeframeId
+        );
 
         // console.log(`Rendering ${symbolTrades.length} trade markers for ${currentSymbol} (toggle mode)`);
 
@@ -2404,7 +2582,12 @@ export default function DashboardPage() {
               exitTime,
               exitPrice,
               outcome: trade.outcome,
-              zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply'
+              zoneType: (trade.zoneType || 'demand').toLowerCase() as 'demand' | 'supply',
+              stopPrice: trade.stopPrice,
+              targetPrice: trade.targetPrice,
+              riskRewardRatio: trade.riskRewardRatio,
+              riskAmount: trade.riskAmount,
+              rewardAmount: trade.rewardAmount
             });
 
             candlestickSeries.attachPrimitive(tradeMarker);
@@ -2461,7 +2644,7 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Error initializing chart:', err);
     }
-  }, [stockData, zonesData, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData]);
+  }, [stockData, zonesData, showZones, showVolumeProfile, volumeProfileData, showTradesOnChart, tradesData, selectedTimeframeKey]);
 
   const isLocked = user.role === "free";
 
@@ -2578,36 +2761,44 @@ export default function DashboardPage() {
                         <div className="bg-background rounded-lg p-3">
                           <div className="text-xs text-secondary">Total Trades</div>
                           <div className="text-xl font-bold text-primary">{tradesData.summary.totalTrades}</div>
+                          <div className="text-xs text-secondary mt-1">{tradesData.summary.closedTrades} closed</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
                           <div className="text-xs text-secondary">Win Rate</div>
                           <div className="text-xl font-bold text-success">{tradesData.summary.winRate}%</div>
-                        </div>
-                        <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Wins / Losses</div>
-                          <div className="text-xl font-bold">
-                            <span className="text-success">{tradesData.summary.wins}</span>
+                          <div className="text-xs text-secondary mt-1">
+                            <span className="text-success">{tradesData.summary.wins}W</span>
                             <span className="text-secondary"> / </span>
-                            <span className="text-red-500">{tradesData.summary.losses}</span>
+                            <span className="text-red-500">{tradesData.summary.losses}L</span>
                           </div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Total P&L</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn) >= 0 ? '+' : ''}{tradesData.summary.totalPnlPercent || tradesData.summary.totalReturn}%
+                          <div className="text-xs text-secondary">Expectancy %</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.expectancyPercent || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.expectancyPercent || '0') >= 0 ? '+' : ''}{tradesData.summary.expectancyPercent || '0'}%
                           </div>
+                          <div className="text-xs text-secondary mt-1">per trade</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Avg P&L</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn) >= 0 ? '+' : ''}{tradesData.summary.avgPnlPercent || tradesData.summary.avgReturn}%
+                          <div className="text-xs text-secondary">Expectancy R</div>
+                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.expectancyR || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
+                            {parseFloat(tradesData.summary.expectancyR || '0') >= 0 ? '+' : ''}{tradesData.summary.expectancyR || '0'}R
                           </div>
+                          <div className="text-xs text-secondary mt-1">per trade</div>
                         </div>
                         <div className="bg-background rounded-lg p-3">
-                          <div className="text-xs text-secondary">Avg R-Multiple</div>
-                          <div className={`text-xl font-bold ${parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? 'text-success' : 'text-red-500'}`}>
-                            {parseFloat(tradesData.summary.avgRMultiple || '0') >= 0 ? '+' : ''}{tradesData.summary.avgRMultiple || '0'}R
+                          <div className="text-xs text-secondary">Avg Win</div>
+                          <div className="text-xl font-bold text-success">
+                            +{tradesData.summary.avgWinPercent || '0'}%
                           </div>
+                          <div className="text-xs text-success mt-1">+{tradesData.summary.avgWinR || '0'}R</div>
+                        </div>
+                        <div className="bg-background rounded-lg p-3">
+                          <div className="text-xs text-secondary">Avg Loss</div>
+                          <div className="text-xl font-bold text-red-500">
+                            {tradesData.summary.avgLossPercent || '0'}%
+                          </div>
+                          <div className="text-xs text-red-500 mt-1">-{tradesData.summary.avgLossR || '0'}R</div>
                         </div>
                       </div>
                       {/* Trades Table */}
@@ -3186,6 +3377,135 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
+                    {/* Exit Strategy */}
+                    <div>
+                      <label className="block text-sm text-secondary mb-1">Exit Strategy</label>
+                      <select
+                        value={backtestConfig.exit_strategy}
+                        onChange={(e) => setBacktestConfig({ ...backtestConfig, exit_strategy: e.target.value as BacktestExitStrategy })}
+                        className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                      >
+                        <option value="historical_trades">Historical Trades (Kelly Sizing)</option>
+                        <option value="holding_period">Holding Period</option>
+                        <option value="stop_target">Stop/Target</option>
+                        <option value="hvn_target">HVN Target</option>
+                      </select>
+                      <p className="text-xs text-secondary mt-1">
+                        {backtestConfig.exit_strategy === 'historical_trades' && 'Uses actual trades from trades table with Kelly criterion'}
+                        {backtestConfig.exit_strategy === 'holding_period' && 'Hold for fixed period, exit at close'}
+                        {backtestConfig.exit_strategy === 'stop_target' && 'Exit at stop loss or R:R target'}
+                        {backtestConfig.exit_strategy === 'hvn_target' && 'Exit at next High Volume Node'}
+                      </p>
+                    </div>
+
+                    {/* Timeframes (only for historical_trades strategy) */}
+                    {backtestConfig.exit_strategy === 'historical_trades' && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm text-secondary">Timeframes</label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setBacktestConfig({
+                                ...backtestConfig,
+                                timeframe_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+                              })}
+                              className="text-xs text-accent hover:text-amber-400 transition-colors"
+                            >
+                              Select All
+                            </button>
+                            <button
+                              onClick={() => setBacktestConfig({
+                                ...backtestConfig,
+                                timeframe_ids: []
+                              })}
+                              className="text-xs text-secondary hover:text-primary transition-colors"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                        <div className="bg-elevated border border-border rounded p-2 max-h-40 overflow-y-auto">
+                          <div className="grid grid-cols-3 gap-1">
+                            {[
+                              { id: 2, label: '2m' },
+                              { id: 3, label: '3m' },
+                              { id: 4, label: '5m' },
+                              { id: 5, label: '6m' },
+                              { id: 6, label: '10m' },
+                              { id: 7, label: '13m' },
+                              { id: 8, label: '15m' },
+                              { id: 9, label: '26m' },
+                              { id: 10, label: '30m' },
+                              { id: 11, label: '39m' },
+                              { id: 12, label: '65m' },
+                              { id: 13, label: '78m' },
+                              { id: 14, label: '130m' },
+                              { id: 15, label: '195m' },
+                              { id: 16, label: '1d' },
+                            ].map((tf) => (
+                              <label
+                                key={tf.id}
+                                className={`flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-xs transition-colors ${
+                                  backtestConfig.timeframe_ids.includes(tf.id)
+                                    ? 'bg-accent/20 text-accent'
+                                    : 'hover:bg-elevated text-secondary'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={backtestConfig.timeframe_ids.includes(tf.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setBacktestConfig({
+                                        ...backtestConfig,
+                                        timeframe_ids: [...backtestConfig.timeframe_ids, tf.id].sort((a, b) => a - b)
+                                      });
+                                    } else {
+                                      setBacktestConfig({
+                                        ...backtestConfig,
+                                        timeframe_ids: backtestConfig.timeframe_ids.filter(id => id !== tf.id)
+                                      });
+                                    }
+                                  }}
+                                  className="w-3 h-3 accent-accent"
+                                />
+                                {tf.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-xs text-secondary mt-1">
+                          {backtestConfig.timeframe_ids.length} timeframe{backtestConfig.timeframe_ids.length !== 1 ? 's' : ''} selected
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Zone Type Filter (only for historical_trades strategy) */}
+                    {backtestConfig.exit_strategy === 'historical_trades' && (
+                      <div>
+                        <label className="block text-sm text-secondary mb-1">Zone Type</label>
+                        <div className="flex gap-2">
+                          {[
+                            { value: 'all', label: 'All Zones' },
+                            { value: 'demand', label: 'Demand Only' },
+                            { value: 'supply', label: 'Supply Only' },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              onClick={() => setBacktestConfig({ ...backtestConfig, zone_type: option.value as BacktestZoneType })}
+                              className={`flex-1 px-3 py-2 rounded text-sm font-medium transition-colors ${
+                                backtestConfig.zone_type === option.value
+                                  ? 'bg-accent text-background'
+                                  : 'bg-elevated text-secondary hover:text-primary border border-border'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Position Sizing Note */}
                     <div className="bg-elevated/50 rounded-lg p-3">
                       <p className="text-xs text-secondary">
@@ -3193,20 +3513,22 @@ export default function DashboardPage() {
                       </p>
                     </div>
 
-                    {/* Min Risk/Reward */}
-                    <div>
-                      <label className="block text-sm text-secondary mb-1">Min Risk/Reward</label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="1"
-                        max="10"
-                        value={backtestConfig.min_risk_reward}
-                        onChange={(e) => setBacktestConfig({ ...backtestConfig, min_risk_reward: Number(e.target.value) })}
-                        className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
-                      />
-                      <p className="text-xs text-secondary mt-1">{backtestConfig.min_risk_reward}:1 ratio</p>
-                    </div>
+                    {/* Min Risk/Reward (only show for stop_target strategy) */}
+                    {backtestConfig.exit_strategy === 'stop_target' && (
+                      <div>
+                        <label className="block text-sm text-secondary mb-1">Min Risk/Reward</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="1"
+                          max="10"
+                          value={backtestConfig.min_risk_reward}
+                          onChange={(e) => setBacktestConfig({ ...backtestConfig, min_risk_reward: Number(e.target.value) })}
+                          className="w-full bg-elevated border border-border rounded px-3 py-2 text-primary focus:outline-none focus:border-accent"
+                        />
+                        <p className="text-xs text-secondary mt-1">{backtestConfig.min_risk_reward}:1 ratio</p>
+                      </div>
+                    )}
 
                     {/* Max Positions */}
                     <div>
@@ -3232,7 +3554,9 @@ export default function DashboardPage() {
                         backtestLoading ||
                         !backtestConfig.start_date ||
                         !backtestConfig.end_date ||
-                        (multiSymbolMode ? backtestConfig.symbols.length === 0 : !backtestConfig.symbol)
+                        // For historical_trades, symbols are optional (runs all if none selected)
+                        (backtestConfig.exit_strategy !== 'historical_trades' &&
+                          (multiSymbolMode ? backtestConfig.symbols.length === 0 : !backtestConfig.symbol))
                       }
                       className="w-full bg-accent hover:bg-amber-600 text-background font-medium py-3 rounded flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
@@ -3244,7 +3568,11 @@ export default function DashboardPage() {
                       ) : (
                         <>
                           <Zap className="w-5 h-5" />
-                          {multiSymbolMode ? `Run Backtest (${backtestConfig.symbols.length} symbols)` : 'Run Backtest'}
+                          {backtestConfig.exit_strategy === 'historical_trades'
+                            ? (multiSymbolMode && backtestConfig.symbols.length > 0
+                                ? `Run Backtest (${backtestConfig.symbols.length} symbols)`
+                                : 'Run Backtest (All Symbols)')
+                            : (multiSymbolMode ? `Run Backtest (${backtestConfig.symbols.length} symbols)` : 'Run Backtest')}
                         </>
                       )}
                     </button>
@@ -3445,7 +3773,7 @@ export default function DashboardPage() {
                           <span className="text-xs text-secondary">Click a trade to view on chart</span>
                         </div>
                         <div className="max-h-[400px] overflow-auto">
-                          <table className="w-full text-sm min-w-[900px]">
+                          <table className="w-full text-sm min-w-[1000px]">
                             <thead className="bg-elevated sticky top-0 z-10">
                               <tr>
                                 <th className="text-left px-3 py-2 text-secondary font-medium whitespace-nowrap">Entry Date</th>
@@ -3458,6 +3786,7 @@ export default function DashboardPage() {
                                 <th className="text-right px-3 py-2 text-secondary font-medium">Exit</th>
                                 <th className="text-right px-3 py-2 text-secondary font-medium">Target</th>
                                 <th className="text-right px-3 py-2 text-secondary font-medium">Stop</th>
+                                <th className="text-right px-3 py-2 text-secondary font-medium">Shares</th>
                                 <th className="text-right px-3 py-2 text-secondary font-medium whitespace-nowrap">Position $</th>
                                 <th className="text-right px-3 py-2 text-secondary font-medium">P&L</th>
                                 <th className="text-right px-3 py-2 text-secondary font-medium">R</th>
@@ -3511,6 +3840,7 @@ export default function DashboardPage() {
                                   </td>
                                   <td className="px-3 py-2 text-right text-accent">${(trade.target_price ?? 0).toFixed(2)}</td>
                                   <td className="px-3 py-2 text-right text-red-400">${(trade.stop_loss ?? 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right text-secondary">{trade.shares ?? '-'}</td>
                                   <td className="px-3 py-2 text-right whitespace-nowrap">
                                     {formatCurrency(trade.capital_deployed ?? (trade.shares * trade.entry_price))}
                                   </td>
@@ -3586,127 +3916,164 @@ export default function DashboardPage() {
                     <option>22d</option>
                     <option>65d</option>
                   </select>
-                  <div className="relative">
-                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Zone ID... Press Enter"
-                      value={zoneSearchQuery}
-                      onChange={(e) => setZoneSearchQuery(e.target.value)}
-                      onKeyDown={handleZoneIdSearch}
-                      disabled={fetching}
-                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-                    />
-                  </div>
-                  <div className="relative">
-                    <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="ZoneRetestID... Press Enter"
-                      value={zoneRetestIdSearchQuery}
-                      onChange={(e) => setZoneRetestIdSearchQuery(e.target.value)}
-                      onKeyDown={handleZoneRetestIdSearch}
-                      disabled={fetching}
-                      className="bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-                    />
-                  </div>
-                  {/* commented for now */}
-                  {/* <div className="flex gap-1">
-                    {['Candles', 'Line', 'Area'].map((type) => (
-                      <button key={type} className="px-3 py-1 text-xs bg-background hover:bg-elevated border border-border rounded text-secondary hover:text-primary transition-colors">
-                        {type}
-                      </button>
-                    ))}
-                  </div> */}
-                  <div className="flex gap-2 items-center">
-                    {/* Volume Profile Toggle */}
+                  {/* Chart Settings Dropdown */}
+                  <div className="relative" ref={chartSettingsRef}>
                     <button
-                      onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+                      onClick={() => setShowChartSettings(!showChartSettings)}
                       className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
-                        showVolumeProfile
+                        showChartSettings
                           ? 'bg-accent/20 border-accent text-accent'
                           : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
                       }`}
-                      title="Toggle Volume Profile"
+                      title="Chart Settings"
                     >
-                      <BarChart3 className="h-4 w-4" />
-                      VP
+                      <Settings className="h-4 w-4" />
+                      Settings
                     </button>
-                    {/* Show Trades Toggle */}
-                    <button
-                      onClick={() => setShowTradesOnChart(!showTradesOnChart)}
-                      className={`px-3 py-1.5 text-xs border rounded flex items-center gap-2 transition-colors ${
-                        showTradesOnChart
-                          ? 'bg-accent/20 border-accent text-accent'
-                          : 'bg-background border-border text-secondary hover:text-primary hover:bg-elevated'
-                      }`}
-                      title="Show trade entry/exit markers on chart"
-                    >
-                      <Target className="h-4 w-4" />
-                      Trades
-                    </button>
-                    {/* Volume Profile Bins Selector (only show when VP is active) */}
-                    {showVolumeProfile && (
-                      <>
-                        <select
-                          className="bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
-                          value={volumeProfileNumBins}
-                          onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
-                          title="Number of bins"
-                        >
-                          <option value={25}>25 bins</option>
-                          <option value={50}>50 bins</option>
-                          <option value={75}>75 bins</option>
-                          <option value={100}>100 bins</option>
-                        </select>
-                        {/* Start Date and Time */}
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-secondary whitespace-nowrap">From:</label>
-                          <input
-                            type="date"
-                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                            value={volumeProfileStartDate}
-                            onChange={(e) => setVolumeProfileStartDate(e.target.value)}
-                            title="Start date for volume profile"
-                          />
-                          <input
-                            type="time"
-                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                            value={volumeProfileStartTime}
-                            onChange={(e) => setVolumeProfileStartTime(e.target.value)}
-                            title="Start time (ET)"
-                          />
+                    {showChartSettings && (
+                      <div className="absolute right-0 top-full mt-1 w-80 bg-panel border border-border rounded-lg shadow-lg z-50 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-medium text-primary">Chart Settings</h3>
+                          <button
+                            onClick={() => setShowChartSettings(false)}
+                            className="text-secondary hover:text-primary"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
                         </div>
-                        {/* End Date and Time */}
-                        <div className="flex items-center gap-1">
-                          <label className="text-xs text-secondary whitespace-nowrap">To:</label>
-                          <input
-                            type="date"
-                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                            value={volumeProfileEndDate}
-                            onChange={(e) => setVolumeProfileEndDate(e.target.value)}
-                            title="End date for volume profile"
-                          />
-                          <input
-                            type="time"
-                            className="bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
-                            value={volumeProfileEndTime}
-                            onChange={(e) => setVolumeProfileEndTime(e.target.value)}
-                            title="End time (ET)"
-                          />
+
+                        {/* Search Inputs */}
+                        <div className="space-y-2 mb-4">
+                          <div className="relative">
+                            <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="Zone ID... Press Enter"
+                              value={zoneSearchQuery}
+                              onChange={(e) => setZoneSearchQuery(e.target.value)}
+                              onKeyDown={handleZoneIdSearch}
+                              disabled={fetching}
+                              className="w-full bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                            />
+                          </div>
+                          <div className="relative">
+                            <Target className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="ZoneRetestID... Press Enter"
+                              value={zoneRetestIdSearchQuery}
+                              onChange={(e) => setZoneRetestIdSearchQuery(e.target.value)}
+                              onKeyDown={handleZoneRetestIdSearch}
+                              disabled={fetching}
+                              className="w-full bg-background border border-border rounded px-3 py-1.5 pl-10 text-sm text-primary placeholder:text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                            />
+                          </div>
                         </div>
-                        <span className="text-xs text-accent font-medium">(ET)</span>
-                      </>
+
+                        {/* Toggle Switches */}
+                        <div className="space-y-3 mb-4">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <Layers className="h-4 w-4" />
+                              Show Zones
+                            </span>
+                            <button
+                              onClick={() => setShowZones(!showZones)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showZones ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showZones ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <Target className="h-4 w-4" />
+                              Show Trades
+                            </span>
+                            <button
+                              onClick={() => setShowTradesOnChart(!showTradesOnChart)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showTradesOnChart ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showTradesOnChart ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="flex items-center gap-2 text-sm text-secondary">
+                              <BarChart3 className="h-4 w-4" />
+                              Volume Profile
+                            </span>
+                            <button
+                              onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+                              className={`relative w-10 h-5 rounded-full transition-colors ${
+                                showVolumeProfile ? 'bg-accent' : 'bg-elevated border border-border'
+                              }`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                                showVolumeProfile ? 'translate-x-5' : ''
+                              }`} />
+                            </button>
+                          </label>
+                        </div>
+
+                        {/* Volume Profile Settings (only show when VP is active) */}
+                        {showVolumeProfile && (
+                          <div className="border-t border-border pt-3 space-y-2">
+                            <div className="text-xs text-secondary font-medium mb-2">Volume Profile Settings</div>
+                            <select
+                              className="w-full bg-background border border-border rounded px-2 py-1.5 text-xs text-primary"
+                              value={volumeProfileNumBins}
+                              onChange={(e) => setVolumeProfileNumBins(parseInt(e.target.value))}
+                              title="Number of bins"
+                            >
+                              <option value={25}>25 bins</option>
+                              <option value={50}>50 bins</option>
+                              <option value={75}>75 bins</option>
+                              <option value={100}>100 bins</option>
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-xs text-secondary">From:</label>
+                                <input
+                                  type="date"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                                  value={volumeProfileStartDate}
+                                  onChange={(e) => setVolumeProfileStartDate(e.target.value)}
+                                />
+                                <input
+                                  type="time"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer mt-1"
+                                  value={volumeProfileStartTime}
+                                  onChange={(e) => setVolumeProfileStartTime(e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-secondary">To:</label>
+                                <input
+                                  type="date"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer"
+                                  value={volumeProfileEndDate}
+                                  onChange={(e) => setVolumeProfileEndDate(e.target.value)}
+                                />
+                                <input
+                                  type="time"
+                                  className="w-full bg-background border border-border rounded px-1 py-1 text-xs text-primary cursor-pointer mt-1"
+                                  value={volumeProfileEndTime}
+                                  onChange={(e) => setVolumeProfileEndTime(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <button className="p-1.5 hover:bg-elevated rounded transition-colors">
-                    <BarChart3 className="h-4 w-4 text-secondary" />
-                  </button>
-                  <button className="p-1.5 hover:bg-elevated rounded transition-colors">
-                    <Settings className="h-4 w-4 text-secondary" />
-                  </button>
                 </div>
               </div>
 

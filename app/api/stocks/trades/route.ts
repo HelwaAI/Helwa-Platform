@@ -46,11 +46,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get('symbol');
   const status = searchParams.get('status'); // 'open', 'closed', 'all'
-  const timeframe = searchParams.get('timeframe') || '5m';
-  const timeframeId = timeframeMap[timeframe as keyof typeof timeframeMap] || 1;
+  const timeframe = searchParams.get('timeframe') || 'all'; // Default to 'all' for trades tab
+  const timeframeId = timeframe === 'all' ? null : (timeframeMap[timeframe as keyof typeof timeframeMap] || null);
 
   try {
     // Query to get trades from historical_trades table
+    // Filter to only include symbols rated as 'compliant' or 'questionable' (exclude 'non compliant')
     let query = `
     SELECT
         ht.trade_id,
@@ -81,14 +82,24 @@ export async function GET(request: Request) {
         ht.pnl_percent,
         ht.r_multiple,
         ht.discord_alerted,
-        tf.label as timeframe
+        ht.timeframe_id,
+        tf.label as timeframe,
+        s.compliance as symbol_compliance
     FROM stocks.historical_trades ht
     LEFT JOIN stocks.timeframes tf ON ht.timeframe_id = tf.id
-    WHERE ht.timeframe_id = ${timeframeId}
+    JOIN stocks.symbols s ON ht.symbol = s.symbol
+    WHERE s.compliance IN ('compliant', 'questionable')
     `;
 
     const params: any[] = [];
     let paramIndex = 1;
+
+    // Filter by timeframe if specified (not 'all')
+    if (timeframeId !== null) {
+      query += ` AND ht.timeframe_id = $${paramIndex}`;
+      params.push(timeframeId);
+      paramIndex++;
+    }
 
     // Filter by symbol if provided
     if (symbol) {
@@ -117,16 +128,45 @@ export async function GET(request: Request) {
     const breakevens = closedTrades.filter((t: any) => t.outcome === 'BREAKEVEN').length;
     const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
 
+    // Calculate average P&L % per trade (Expectancy %)
     const totalPnlPercent = closedTrades.reduce((sum: number, t: any) => {
       return sum + (parseFloat(t.pnl_percent) || 0);
     }, 0);
 
+    // Calculate total R-multiple
     const totalRMultiple = closedTrades.reduce((sum: number, t: any) => {
       return sum + (parseFloat(t.r_multiple) || 0);
     }, 0);
 
+    // Expectancy metrics (average per trade)
     const avgPnlPercent = closedTrades.length > 0 ? totalPnlPercent / closedTrades.length : 0;
     const avgRMultiple = closedTrades.length > 0 ? totalRMultiple / closedTrades.length : 0;
+
+    // Calculate separate win/loss averages for Kelly-style expectancy
+    const winningTrades = closedTrades.filter((t: any) => t.outcome === 'WIN');
+    const losingTrades = closedTrades.filter((t: any) => t.outcome === 'LOSS');
+
+    const avgWinPercent = winningTrades.length > 0
+      ? winningTrades.reduce((sum: number, t: any) => sum + (parseFloat(t.pnl_percent) || 0), 0) / winningTrades.length
+      : 0;
+    const avgLossPercent = losingTrades.length > 0
+      ? losingTrades.reduce((sum: number, t: any) => sum + (parseFloat(t.pnl_percent) || 0), 0) / losingTrades.length
+      : 0;
+    const avgWinR = winningTrades.length > 0
+      ? winningTrades.reduce((sum: number, t: any) => sum + (parseFloat(t.r_multiple) || 0), 0) / winningTrades.length
+      : 0;
+    const avgLossR = losingTrades.length > 0
+      ? Math.abs(losingTrades.reduce((sum: number, t: any) => sum + (parseFloat(t.r_multiple) || 0), 0) / losingTrades.length)
+      : 0;
+
+    // Expectancy formula: (Win% * AvgWin) + (Loss% * AvgLoss)
+    // Note: avgLossPercent is already negative
+    const expectancyPercent = closedTrades.length > 0
+      ? (winRate / 100 * avgWinPercent) + ((1 - winRate / 100) * avgLossPercent)
+      : 0;
+    const expectancyR = closedTrades.length > 0
+      ? (winRate / 100 * avgWinR) - ((1 - winRate / 100) * avgLossR)
+      : 0;
 
     return NextResponse.json({
       success: true,
@@ -161,6 +201,8 @@ export async function GET(request: Request) {
           rMultiple: row.r_multiple ? parseFloat(row.r_multiple) : null,
           discordAlerted: row.discord_alerted,
           timeframe: row.timeframe,
+          timeframeId: row.timeframe_id,
+          symbolCompliance: row.symbol_compliance,
           // Legacy field mappings for backward compatibility
           alertId: row.trade_id,
           stopLoss: parseFloat(row.stop_price),
@@ -181,13 +223,19 @@ export async function GET(request: Request) {
           losses,
           breakevens,
           winRate: winRate.toFixed(1),
+          // Expectancy metrics - the expected return per trade
+          expectancyPercent: expectancyPercent.toFixed(2),
+          expectancyR: expectancyR.toFixed(2),
+          // Average win/loss stats
+          avgWinPercent: avgWinPercent.toFixed(2),
+          avgLossPercent: avgLossPercent.toFixed(2),
+          avgWinR: avgWinR.toFixed(2),
+          avgLossR: avgLossR.toFixed(2),
+          // Total and average metrics (kept for reference)
           totalPnlPercent: totalPnlPercent.toFixed(2),
           avgPnlPercent: avgPnlPercent.toFixed(2),
           totalRMultiple: totalRMultiple.toFixed(2),
           avgRMultiple: avgRMultiple.toFixed(2),
-          // Legacy field mappings for backward compatibility
-          totalReturn: totalPnlPercent.toFixed(2),
-          avgReturn: avgPnlPercent.toFixed(2),
         },
       },
       timestamp: new Date().toISOString(),
